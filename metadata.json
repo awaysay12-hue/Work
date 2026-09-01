@@ -1,0 +1,6 @@
+{
+  "name": "កម្មវិធីគ្រប់គ្រងការងារប្រចាំថ្ងៃ",
+  "description": "កម្មវិធីគ្រប់គ្រងកិច្ចការប្រចាំថ្ងៃ មុខងាររំលឹកកាលកំណត់ និងតាមដានវឌ្ឍនភាពការងារយ៉ាងលម្អិត។",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
