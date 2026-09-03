@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
-import { Plus, LayoutList, Table as TableIcon, SearchX, CheckCircle2, PlusCircle } from 'lucide-react';
+import {
+  Plus,
+  LayoutList,
+  Table as TableIcon,
+  SearchX,
+  CheckCircle2,
+  PlusCircle,
+  AlertTriangle,
+  AlertCircle,
+} from 'lucide-react';
 import { Task, TaskFilterState } from '../types';
 import { TaskCard } from './TaskCard';
-import { getTodayDateString, getTomorrowDateString } from '../utils/khmerDates';
+import { getTodayDateString, getTomorrowDateString, getRelativeDueDateText } from '../utils/khmerDates';
+import { toKhmerNumber } from '../utils/translations';
 
 interface TaskListProps {
   tasks: Task[];
@@ -126,6 +136,11 @@ export const TaskList: React.FC<TaskListProps> = ({
     return 0;
   });
 
+  // Count overdue tasks in current sorted view
+  const overdueTasksCount = sortedTasks.filter(
+    (t) => !t.completed && getRelativeDueDateText(t.dueDate, t.dueTime).isOverdue
+  ).length;
+
   const getListTitle = () => {
     switch (filters.period) {
       case 'today':
@@ -152,6 +167,12 @@ export const TaskList: React.FC<TaskListProps> = ({
           <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-bold">
             {sortedTasks.length}
           </span>
+          {overdueTasksCount > 0 && (
+            <span className="text-[10px] text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full font-bold animate-pulse flex items-center gap-1">
+              <AlertTriangle className="w-2.5 h-2.5" />
+              <span>ហួសកំណត់ {toKhmerNumber(overdueTasksCount)}</span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -186,7 +207,33 @@ export const TaskList: React.FC<TaskListProps> = ({
         </div>
       </div>
 
+      {/* Overdue Alert Banner in TaskList */}
+      {overdueTasksCount > 0 && (
+        <div className="mx-3 sm:mx-4 mt-3 p-2.5 sm:p-3 rounded-xl bg-gradient-to-r from-rose-500/10 via-rose-500/5 to-rose-500/10 border border-rose-300 animate-pulse-border-red flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+            </span>
+            <div>
+              <h4 className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>ការដាស់តឿន៖ មាន {toKhmerNumber(overdueTasksCount)} ភារកិច្ចហួសកាលកំណត់ (Overdue Tasks)</span>
+              </h4>
+              <p className="text-[10px] sm:text-[11px] text-rose-700 font-medium">
+                កិច្ចការទាំងនេះត្រូវបានរំលេចដោយស៊ុមក្រហមភ្លឹបភ្លែត (Pulsating Red Border) ដើម្បីទាក់ទាញចំណាប់អារម្មណ៍ និងដោះស្រាយជាបន្ទាន់!
+              </p>
+            </div>
+          </div>
+          <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[10px] font-bold shadow-xs shrink-0 animate-pulse">
+            <AlertCircle className="w-3 h-3" />
+            <span>បន្ទាន់</span>
+          </span>
+        </div>
+      )}
+
       {/* Content Area */}
+
       {sortedTasks.length === 0 ? (
         <div className="p-10 text-center">
           {filters.searchQuery ? (
