@@ -18,8 +18,11 @@ import {
   KeyRound,
   Check,
   Smartphone,
+  Zap,
+  ArrowRight,
+  Trash2,
 } from 'lucide-react';
-import { UserAccount, UserRole, TaskVisibilityScope } from '../types';
+import { UserAccount, UserRole, TaskVisibilityScope, SystemConfig } from '../types';
 import { verifyUserLogin, ROLE_CONFIGS } from '../utils/userPermissions';
 import { fetchUsersFromSupabase, saveUserToSupabase, supabase } from '../lib/supabase';
 import { soundFx } from '../utils/sound';
@@ -33,6 +36,7 @@ interface AuthModalProps {
   currentUser?: UserAccount;
   forceLoginScreen?: boolean;
   isFullScreen?: boolean;
+  systemConfig?: SystemConfig;
 }
 
 const AVATAR_COLORS = [
@@ -53,10 +57,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   users = [],
   forceLoginScreen = false,
   isFullScreen = false,
+  systemConfig,
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'enroll'>('login');
   const [currentUsersList, setCurrentUsersList] = useState<UserAccount[]>(() => {
     return Array.isArray(users) ? users : [];
+  });
+
+  // Device-Private Saved Account (For 1-click Auto-login of this device's own user only)
+  const [savedDeviceAccount, setSavedDeviceAccount] = useState<UserAccount | null>(() => {
+    try {
+      const raw = localStorage.getItem('kh_daily_saved_device_account_v1');
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // Ignore
+    }
+    return null;
+  });
+
+  const [showManualLoginForm, setShowManualLoginForm] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('kh_daily_saved_device_account_v1');
+      return !raw;
+    } catch {
+      return true;
+    }
   });
 
   // Login form state
@@ -206,16 +231,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setIsLoading(false);
 
       if (result.success && result.user) {
+        // Super Admin maintenance check: if system is under maintenance, block non-admin users
+        if (systemConfig?.isMaintenance && result.user.role !== 'admin') {
+          soundFx.playAlert();
+          setErrorMessage(
+            'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
+          );
+          return;
+        }
+
         soundFx.playCelebration();
         setSuccessMessage(`ស្វាគមន៍! សួស្តី ${result.user.khmerName || result.user.name}`);
 
         // Persist session if rememberMe is enabled
         if (rememberMe) {
           try {
+            localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(result.user));
             localStorage.setItem('taskmate_current_user_id', result.user.id);
             localStorage.setItem('kh_daily_current_user_id_v1', result.user.id);
             localStorage.setItem('taskmate_auth_authenticated', 'true');
             localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+            setSavedDeviceAccount(result.user);
           } catch {
             // Ignore
           }
@@ -236,6 +272,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       soundFx.playAlert();
       setErrorMessage('មានបញ្ហាបច្ចេកទេសក្នុងការផ្ទៀងផ្ទាត់គណនី សូមសាកល្បងម្តងទៀត');
     }
+  };
+
+  // 1-Click Auto-Login for this device's own saved user account
+  const handleAutoLoginDeviceAccount = () => {
+    if (!savedDeviceAccount) return;
+
+    if (systemConfig?.isMaintenance && savedDeviceAccount.role !== 'admin') {
+      soundFx.playAlert();
+      setErrorMessage(
+        'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin! សូមរង់ចាំការបញ្ចេញ Version ថ្មី។'
+      );
+      return;
+    }
+
+    soundFx.playCelebration();
+    setSuccessMessage(`ស្វាគមន៍ការត្រឡប់មកវិញ! សួស្តី ${savedDeviceAccount.khmerName || savedDeviceAccount.name}`);
+    setIsLoading(true);
+
+    setTimeout(() => {
+      try {
+        localStorage.setItem('taskmate_current_user_id', savedDeviceAccount.id);
+        localStorage.setItem('kh_daily_current_user_id_v1', savedDeviceAccount.id);
+        localStorage.setItem('taskmate_auth_authenticated', 'true');
+        localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+      } catch {
+        // Ignore
+      }
+
+      setIsLoading(false);
+      onLoginSuccess(savedDeviceAccount);
+    }, 350);
+  };
+
+  // Forget device-saved account to allow entering different credentials cleanly
+  const handleForgetDeviceAccount = () => {
+    soundFx.playClick();
+    try {
+      localStorage.removeItem('kh_daily_saved_device_account_v1');
+    } catch {
+      // Ignore
+    }
+    setSavedDeviceAccount(null);
+    setShowManualLoginForm(true);
   };
 
   // Point 4: Handle User Enrollment / Registration
@@ -483,154 +562,187 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* 1. SIGN IN FORM (Point 1) */}
+        {/* 1. SIGN IN FORM (Point 1 & Strict Privacy Isolation) */}
         {activeTab === 'login' && (
-          <form onSubmit={handleSignIn} className="space-y-3.5">
-            {/* Identifier */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                អ៊ីមែល, ឈ្មោះ ឬ លេខទូរស័ព្ទ (Email / Username / Phone)
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  required
-                  value={emailOrName}
-                  onChange={(e) => setEmailOrName(e.target.value)}
-                  placeholder="បញ្ចូល sunpunleu168@gmail.com ឬ ឈ្មោះ..."
-                  className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-900 placeholder-slate-400 font-medium"
-                />
-              </div>
-            </div>
+          <div className="space-y-4">
+            {/* Device-Private Auto-Login Card (Shown only if THIS device has a saved user account) */}
+            {savedDeviceAccount && !showManualLoginForm ? (
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-white to-indigo-50/60 border border-indigo-200 shadow-sm space-y-3.5 animate-scale-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                    <span>គណនីរបស់អ្នកនៅលើឧបករណ៍នេះ (Your Device)</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full font-bold border border-emerald-300">
+                    Auto-Login Ready
+                  </span>
+                </div>
 
-            {/* Password */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-700">
-                  ពាក្យសម្ងាត់ (Password)
-                </label>
-                <span className="text-[10px] text-slate-500 font-medium">
-                  Admin: <code className="bg-slate-100 text-indigo-600 px-1 py-0.5 rounded font-bold font-mono">123</code> | Default: <code className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded font-mono">123456</code>
-                </span>
-              </div>
-              <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="បញ្ចូលពាក្យសម្ងាត់..."
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-900 placeholder-slate-400 font-medium tracking-wide"
-                />
+                <div className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-indigo-100/80 shadow-xs">
+                  <div
+                    className={`w-12 h-12 rounded-xl bg-gradient-to-tr ${
+                      savedDeviceAccount.avatarColor || 'from-indigo-600 to-cyan-500'
+                    } text-white font-black text-base flex items-center justify-center shadow-xs shrink-0`}
+                  >
+                    {savedDeviceAccount.avatarInitial || savedDeviceAccount.khmerName?.charAt(0) || 'U'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-bold text-slate-900 truncate">
+                        {savedDeviceAccount.khmerName || savedDeviceAccount.name}
+                      </p>
+                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                        {savedDeviceAccount.role.toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-mono truncate mt-0.5">
+                      {savedDeviceAccount.email}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      ផ្នែក៖ <span className="text-slate-600 font-semibold">{savedDeviceAccount.department}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* 1-Click Auto Login Button */}
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-                  title={showPassword ? 'លាក់ពាក្យសម្ងាត់' : 'បង្ហាញពាក្យសម្ងាត់'}
+                  onClick={handleAutoLoginDeviceAccount}
+                  disabled={isLoading}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {isLoading ? (
+                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 text-amber-300" />
+                      <span>⚡ ចូលប្រើប្រាស់ស្វ័យប្រវត្ត (Auto-Login គណនីខ្ញុំ)</span>
+                    </>
+                  )}
                 </button>
+
+                {/* Switch to manual or remove account */}
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShowManualLoginForm(true)}
+                    className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <span>ចូលដោយប្រើគណនីផ្សេង</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleForgetDeviceAccount}
+                    className="text-slate-400 hover:text-rose-600 text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                    title="លុបគណនីដែលបានចងចាំលើ Browser នេះ"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>ដកគណនីចេញ</span>
+                  </button>
+                </div>
               </div>
-            </div>
-
-            {/* Remember Me */}
-            <div className="flex items-center justify-between pt-0.5">
-              <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                />
-                <span>ចងចាំការចូលប្រើប្រាស់នេះ (Remember me)</span>
-              </label>
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer mt-2"
-            >
-              {isLoading ? (
-                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-              ) : (
-                <>
-                  <LogIn className="w-4 h-4" />
-                  <span>ចូលទៅកាន់ផ្ទាំងការងារ (Sign In)</span>
-                </>
-              )}
-            </button>
-
-            {/* Quick One-Click Accounts Selector */}
-            <div className="mt-4 pt-3 border-t border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>គណនីក្នុងប្រព័ន្ធ ({currentUsersList.length}) - ចុចដើម្បីបំពេញស្វ័យប្រវត្តិ៖</span>
-                </span>
-              </div>
-
-              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                {currentUsersList.map((u) => {
-                  const roleCfg = ROLE_CONFIGS[u.role] || ROLE_CONFIGS.member;
-                  const isSelected = emailOrName === u.email || emailOrName === u.name;
-                  const defaultPass = u.password || (u.role === 'admin' ? '123' : '123456');
-
-                  return (
+            ) : (
+              /* Manual Input Form (Privacy Isolated - No other users' data shown) */
+              <form onSubmit={handleSignIn} className="space-y-3.5">
+                {savedDeviceAccount && (
+                  <div className="flex items-center justify-between pb-1">
                     <button
-                      key={u.id}
                       type="button"
-                      onClick={() => {
-                        setEmailOrName(u.email || u.name);
-                        setPassword(defaultPass);
-                        soundFx.playClick();
-                      }}
-                      className={`w-full text-left p-2 rounded-xl border transition-all flex items-center justify-between text-xs cursor-pointer ${
-                        isSelected
-                          ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-400 shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80'
-                      }`}
+                      onClick={() => setShowManualLoginForm(false)}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
                     >
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <div
-                          className={`w-7 h-7 rounded-lg bg-gradient-to-tr ${
-                            u.avatarColor || 'from-indigo-500 to-cyan-500'
-                          } text-white text-[11px] font-bold flex items-center justify-center shrink-0 shadow-xs`}
-                        >
-                          {u.avatarInitial || u.khmerName?.charAt(0) || 'U'}
-                        </div>
-                        <div className="truncate">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-slate-900 truncate">
-                              {u.khmerName || u.name}
-                            </span>
-                            {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                          </div>
-                          <span className="text-[10px] text-slate-500 block truncate font-mono">
-                            {u.email || u.name}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                        <span
-                          className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold border ${roleCfg.badgeBg} ${roleCfg.badgeText} ${roleCfg.badgeBorder}`}
-                        >
-                          {roleCfg.titleKh}
-                        </span>
-                        <span className="text-[9px] text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 flex items-center gap-1">
-                          <KeyRound className="w-2.5 h-2.5 text-slate-400" />
-                          <span>{u.password ? '●●●' : defaultPass}</span>
-                        </span>
-                      </div>
+                      <span>← ត្រឡប់ទៅ Auto-Login គណនី {savedDeviceAccount.khmerName}</span>
                     </button>
-                  );
-                })}
-              </div>
-            </div>
-          </form>
+                  </div>
+                )}
+
+                {/* Identifier */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    អ៊ីមែល, ឈ្មោះ ឬ លេខទូរស័ព្ទ (Email / Username / Phone)
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      value={emailOrName}
+                      onChange={(e) => setEmailOrName(e.target.value)}
+                      placeholder="បញ្ចូលអ៊ីមែល ឬ ឈ្មោះគណនីផ្ទាល់ខ្លួន..."
+                      className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-900 placeholder-slate-400 font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-700">
+                      ពាក្យសម្ងាត់ (Password)
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="បញ្ចូលពាក្យសម្ងាត់..."
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-900 placeholder-slate-400 font-medium tracking-wide"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+                      title={showPassword ? 'លាក់ពាក្យសម្ងាត់' : 'បង្ហាញពាក្យសម្ងាត់'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Remember Me */}
+                <div className="flex items-center justify-between pt-0.5">
+                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    />
+                    <span>ចងចាំការចូលប្រើប្រាស់នេះលើឧបករណ៍នេះ (Auto-Login Ready)</span>
+                  </label>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer mt-2"
+                >
+                  {isLoading ? (
+                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    <>
+                      <LogIn className="w-4 h-4" />
+                      <span>ចូលទៅកាន់ផ្ទាំងការងារ (Sign In)</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Privacy Guarantee Badge */}
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] text-slate-500 flex items-start gap-2 mt-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-slate-700 font-semibold">ការការពារឯកជនភាព៖</strong> គណនី និងព័ត៌មានរបស់អ្នកត្រូវបានការពារដាច់ដោយឡែក។ User ផ្សេងទៀតមិនអាចមើលឃើញគណនីរបស់អ្នកឡើយ។
+                  </span>
+                </div>
+              </form>
+            )}
+          </div>
         )}
 
         {/* 2. ENROLL / REGISTER NEW USER FORM (Point 4) */}

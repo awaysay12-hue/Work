@@ -131,6 +131,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   }, [isOpen]);
 
   if (!isOpen) return null;
+  if (currentUser?.role !== 'admin' && currentUser?.role !== 'manager') return null;
 
   const showNotification = (msg: string) => {
     setNotificationMsg(msg);

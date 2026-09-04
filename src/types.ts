@@ -130,3 +130,14 @@ export interface ActiveReminderAlert {
   alertType: 'due_now' | 'upcoming_soon' | 'overdue';
 }
 
+export interface SystemConfig {
+  isMaintenance: boolean;
+  maintenanceStartedBy?: string;
+  maintenanceStartTime?: string;
+  maintenanceReason?: string;
+  currentVersion: string;
+  lastUpdated?: string;
+  releaseNotes?: string;
+  showNewVersionBanner?: boolean;
+}
+

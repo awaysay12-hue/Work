@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import confetti from 'canvas-confetti';
+import { Wrench, Rocket, Sparkles, ShieldAlert } from 'lucide-react';
 import {
   Task,
   TaskFilterState,
@@ -9,6 +10,7 @@ import {
   UserRole,
   RolePermissions,
   ActivityLog,
+  SystemConfig,
 } from './types';
 import { getInitialTasks, getInitialStreak } from './utils/initialData';
 import { soundFx } from './utils/sound';
@@ -62,6 +64,8 @@ import { ProfileModal } from './components/ProfileModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { TodaySummaryModal } from './components/TodaySummaryModal';
 import { PhoneNotificationModal } from './components/PhoneNotificationModal';
+import { SystemMaintenanceScreen } from './components/SystemMaintenanceScreen';
+import { ReleaseVersionModal } from './components/ReleaseVersionModal';
 
 const STORAGE_KEYS = {
   TASKS: 'kh_daily_tasks_data_v1',
@@ -223,6 +227,58 @@ export default function App() {
   // Daily Summary & Lockscreen Phone Notification Modals
   const [isTodaySummaryOpen, setIsTodaySummaryOpen] = useState<boolean>(false);
   const [isPhoneNotificationModalOpen, setIsPhoneNotificationModalOpen] = useState<boolean>(false);
+
+  // Super Admin Maintenance Mode & Versioning State
+  const [systemConfig, setSystemConfig] = useState<SystemConfig>(() => {
+    try {
+      const saved = localStorage.getItem('kh_daily_system_config_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore
+    }
+    return {
+      isMaintenance: false,
+      currentVersion: 'v2.5.0',
+      maintenanceReason: 'Super Admin កំពុងកែប្រែប្រព័ន្ធ (Maintenance Mode)',
+      showNewVersionBanner: false,
+    };
+  });
+  const [isReleaseVersionModalOpen, setIsReleaseVersionModalOpen] = useState<boolean>(false);
+
+  // Persist systemConfig
+  useEffect(() => {
+    try {
+      localStorage.setItem('kh_daily_system_config_v1', JSON.stringify(systemConfig));
+    } catch {
+      // Ignore
+    }
+  }, [systemConfig]);
+
+  // Toggle Maintenance Mode
+  const handleToggleMaintenance = (enable?: boolean) => {
+    const nextVal = typeof enable === 'boolean' ? enable : !systemConfig.isMaintenance;
+    setSystemConfig((prev) => ({
+      ...prev,
+      isMaintenance: nextVal,
+      maintenanceStartedBy: currentUser?.khmerName || 'Super Admin',
+      maintenanceStartTime: nextVal ? new Date().toISOString() : undefined,
+      lastUpdated: new Date().toLocaleDateString('km-KH'),
+    }));
+    soundFx.playCelebration();
+  };
+
+  // Super Admin releases a new version and optionally exits maintenance
+  const handleReleaseVersion = (newVersion: string, releaseNotes: string, exitMaintenance: boolean) => {
+    setSystemConfig((prev) => ({
+      ...prev,
+      currentVersion: newVersion,
+      releaseNotes,
+      isMaintenance: exitMaintenance ? false : prev.isMaintenance,
+      lastUpdated: new Date().toLocaleDateString('km-KH'),
+      showNewVersionBanner: true,
+    }));
+    soundFx.playCelebration();
+  };
 
   // Register PWA Service Worker for Mobile Notifications
   useEffect(() => {
@@ -1124,6 +1180,27 @@ export default function App() {
     return visibleTasks.filter((t) => t.dueDate < todayStr && !t.completed).length;
   }, [visibleTasks, todayStr]);
 
+  // Super Admin Maintenance Mode Guard:
+  // When Super Admin is updating the system (isMaintenance is true), all non-admin users are blocked from viewing tasks or dashboard
+  if (systemConfig.isMaintenance && currentUser.role !== 'admin') {
+    return (
+      <SystemMaintenanceScreen
+        systemConfig={systemConfig}
+        currentUser={currentUser}
+        onRefreshStatus={() => {
+          try {
+            const raw = localStorage.getItem('kh_daily_system_config_v1');
+            if (raw) setSystemConfig(JSON.parse(raw));
+          } catch {}
+        }}
+        onOpenAdminLogin={() => {
+          setIsAuthModalOpen(true);
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   // If user is not yet logged in, render the dedicated high-performance Login View directly
   if (!isAuthenticated) {
     return (
@@ -1136,6 +1213,7 @@ export default function App() {
           onRegisterUser={handleSaveUser}
           users={users}
           currentUser={currentUser}
+          systemConfig={systemConfig}
         />
       </div>
     );
@@ -1171,6 +1249,54 @@ export default function App() {
 
       {/* Main App Canvas */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-100">
+        {/* Super Admin Maintenance Mode Alert Banner */}
+        {currentUser.role === 'admin' && systemConfig.isMaintenance && (
+          <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-4 py-2 shadow-md flex items-center justify-between flex-wrap gap-2 text-xs font-bold shrink-0 z-30">
+            <div className="flex items-center gap-2">
+              <Wrench className="w-4 h-4 animate-spin text-amber-200" />
+              <span>
+                🛠️ Super Admin កំពុងកែប្រែប្រព័ន្ធ (Maintenance Mode សកម្ម) — User ទាំងអស់មិនអាចមើលឃើញទេ
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsReleaseVersionModalOpen(true)}
+                className="px-3 py-1 rounded-lg bg-white text-orange-700 hover:bg-orange-50 font-bold text-xs shadow-xs cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <Rocket className="w-3.5 h-3.5 text-orange-600" />
+                <span>បញ្ចេញ Version ថ្មី (Update to New Version)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleMaintenance(false)}
+                className="px-3 py-1 rounded-lg bg-black/20 hover:bg-black/30 text-white font-medium text-xs cursor-pointer transition-all"
+              >
+                បញ្ចប់ការកែប្រែ
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Release Version Banner */}
+        {systemConfig.showNewVersionBanner && (
+          <div className="bg-indigo-600 text-white px-4 py-2 text-xs flex items-center justify-between shadow-sm shrink-0 z-20 animate-fade-in">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+              <span>
+                <strong>Version ថ្មី {systemConfig.currentVersion} ត្រូវបានបញ្ចេញរួចរាល់!</strong> {systemConfig.releaseNotes}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSystemConfig((prev) => ({ ...prev, showNewVersionBanner: false }))}
+              className="p-1 hover:bg-indigo-700 rounded-md cursor-pointer text-indigo-200 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* High Density Top Header */}
         <Header
           streak={streak}
@@ -1192,6 +1318,9 @@ export default function App() {
           canManageUsers={canManageUsers}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
+          systemConfig={systemConfig}
+          onToggleMaintenance={currentUser.role === 'admin' ? handleToggleMaintenance : undefined}
+          onOpenReleaseVersion={currentUser.role === 'admin' ? () => setIsReleaseVersionModalOpen(true) : undefined}
         />
 
         {/* Scrollable Dashboard Workspace */}
@@ -1371,6 +1500,7 @@ export default function App() {
         onRegisterUser={handleSaveUser}
         users={users}
         currentUser={currentUser}
+        systemConfig={systemConfig}
       />
 
       {/* Mobile App Bottom Navigation Bar (Phone Form Factor) */}
@@ -1397,6 +1527,14 @@ export default function App() {
         isOpen={isPhoneNotificationModalOpen}
         onClose={() => setIsPhoneNotificationModalOpen(false)}
         tasks={tasks}
+      />
+
+      {/* Super Admin Release New Version Modal */}
+      <ReleaseVersionModal
+        isOpen={isReleaseVersionModalOpen}
+        onClose={() => setIsReleaseVersionModalOpen(false)}
+        systemConfig={systemConfig}
+        onReleaseVersion={handleReleaseVersion}
       />
     </div>
   );

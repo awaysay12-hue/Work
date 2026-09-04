@@ -21,11 +21,13 @@ import {
   Settings,
   FileText,
   Smartphone,
+  Wrench,
+  Rocket,
 } from 'lucide-react';
 import { formatKhmerDate, formatKhmerTime, getTodayDateString } from '../utils/khmerDates';
 import { toKhmerNumber } from '../utils/translations';
 import { soundFx } from '../utils/sound';
-import { DailyStreak, Task, UserAccount } from '../types';
+import { DailyStreak, Task, UserAccount, SystemConfig } from '../types';
 import { ROLE_CONFIGS } from '../utils/userPermissions';
 import { requestNotificationPermission } from '../utils/notifications';
 import { UserAvatar } from './UserAvatar';
@@ -51,6 +53,9 @@ interface HeaderProps {
   canManageUsers?: boolean;
   onOpenAuthModal?: () => void;
   onLogout?: () => void;
+  systemConfig?: SystemConfig;
+  onToggleMaintenance?: () => void;
+  onOpenReleaseVersion?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -74,6 +79,9 @@ export const Header: React.FC<HeaderProps> = ({
   canManageUsers = false,
   onOpenAuthModal,
   onLogout,
+  systemConfig,
+  onToggleMaintenance,
+  onOpenReleaseVersion,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [notificationPermission, setNotificationPermission] = useState<string>(
@@ -241,6 +249,22 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Super Admin Maintenance Trigger Button */}
+        {currentUser.role === 'admin' && onToggleMaintenance && (
+          <button
+            onClick={onToggleMaintenance}
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              systemConfig?.isMaintenance
+                ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400/50 shadow-xs animate-pulse'
+                : 'bg-slate-100 text-slate-700 hover:bg-amber-50 hover:text-amber-800 border border-slate-200'
+            }`}
+            title={systemConfig?.isMaintenance ? "ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin" : "បើក Maintenance Mode កែប្រែប្រព័ន្ធ"}
+          >
+            <Wrench className="w-3.5 h-3.5 text-amber-600" />
+            <span>{systemConfig?.isMaintenance ? '🛠️ កំពុងកែប្រែ' : 'កែប្រែប្រព័ន្ធ'}</span>
+          </button>
+        )}
+
         {/* User Profile Pill & Dropdown Switcher */}
         <div className="relative border-l pl-1.5 sm:pl-3 border-slate-200" ref={profileMenuRef}>
           <button
@@ -354,10 +378,46 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>គ្រប់គ្រងសិទ្ធិ & សមាជិក (RBAC Pro)</span>
                   </button>
                 )}
+
+                {/* Super Admin Maintenance Mode Toggle */}
+                {currentUser.role === 'admin' && onToggleMaintenance && (
+                  <button
+                    onClick={() => {
+                      onToggleMaintenance();
+                      setIsProfileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl transition-colors cursor-pointer ${
+                      systemConfig?.isMaintenance
+                        ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 border border-amber-300'
+                        : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
+                    }`}
+                  >
+                    <Wrench className="w-4 h-4 text-amber-600" />
+                    <span>
+                      {systemConfig?.isMaintenance
+                        ? 'បញ្ចប់ការកែប្រែ (Exit Maintenance)'
+                        : '🛠️ កែប្រែប្រព័ន្ធ (Maintenance Mode)'}
+                    </span>
+                  </button>
+                )}
+
+                {/* Super Admin Release New Version */}
+                {currentUser.role === 'admin' && onOpenReleaseVersion && (
+                  <button
+                    onClick={() => {
+                      onOpenReleaseVersion();
+                      setIsProfileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Rocket className="w-4 h-4 text-orange-600" />
+                    <span>បញ្ចេញ Version ថ្មី (Update to New Version)</span>
+                  </button>
+                )}
               </div>
 
-              {/* Quick Switch Profiles - Only for Admins / Managers */}
-              {canManageUsers && users.length > 1 && (
+              {/* Quick Switch Profiles - Super Admin Only */}
+              {currentUser.role === 'admin' && users.length > 1 && (
                 <div className="p-2 border-b border-slate-100">
                   <div className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1 flex items-center justify-between">
                     <span>ប្តូរគណនីប្រើប្រាស់ភ្លាមៗ</span>
