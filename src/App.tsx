@@ -66,6 +66,13 @@ import { TodaySummaryModal } from './components/TodaySummaryModal';
 import { PhoneNotificationModal } from './components/PhoneNotificationModal';
 import { SystemMaintenanceScreen } from './components/SystemMaintenanceScreen';
 import { ReleaseVersionModal } from './components/ReleaseVersionModal';
+import { StorageOptimizerModal } from './components/StorageOptimizerModal';
+import {
+  initUserPartition,
+  removeUserPartition,
+  debouncedSaveTasks,
+  runStorageOptimization,
+} from './utils/storageOptimizer';
 
 const STORAGE_KEYS = {
   TASKS: 'kh_daily_tasks_data_v1',
@@ -244,6 +251,7 @@ export default function App() {
     };
   });
   const [isReleaseVersionModalOpen, setIsReleaseVersionModalOpen] = useState<boolean>(false);
+  const [isStorageOptimizerOpen, setIsStorageOptimizerOpen] = useState<boolean>(false);
 
   // Persist systemConfig
   useEffect(() => {
@@ -269,6 +277,14 @@ export default function App() {
 
   // Super Admin releases a new version and optionally exits maintenance
   const handleReleaseVersion = (newVersion: string, releaseNotes: string, exitMaintenance: boolean) => {
+    // Run storage optimization & compaction on version release
+    try {
+      const opt = runStorageOptimization(tasks, users);
+      setTasks(opt.optimizedTasks);
+    } catch (err) {
+      console.warn('Storage optimization during release warning:', err);
+    }
+
     setSystemConfig((prev) => ({
       ...prev,
       currentVersion: newVersion,
@@ -484,6 +500,13 @@ export default function App() {
       console.warn('Failed to save user to Supabase:', err)
     );
 
+    // Initialize isolated storage partition for this user
+    try {
+      initUserPartition(savedUser);
+    } catch (err) {
+      console.warn('Failed to init user storage partition:', err);
+    }
+
     // If updating current user's profile
     if (savedUser.id === currentUser.id) {
       setCurrentUser(savedUser);
@@ -516,6 +539,13 @@ export default function App() {
     deleteUserFromSupabase(userId).catch((err) =>
       console.warn('Failed to delete user in Supabase:', err)
     );
+
+    // Reclaim storage partition for deleted user
+    try {
+      removeUserPartition(userId);
+    } catch (err) {
+      console.warn('Failed to remove user partition:', err);
+    }
   };
 
   const handleUpdateRolePermissions = (newPermissions: Record<UserRole, RolePermissions>) => {
@@ -827,10 +857,11 @@ export default function App() {
     setSupabaseSyncMessage(`បានទាញ ${tasksRes.tasks.length} ភារកិច្ច និង ${usersRes.users?.length || 0} គណនីពី Cloud ជោគជ័យ ✅`);
   };
 
-  // Sync state to localStorage
+  // Sync state to localStorage with debounced compact compression
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      debouncedSaveTasks(tasks);
     } catch {
       // Ignore
     }
@@ -1245,6 +1276,7 @@ export default function App() {
         canSyncCloud={canSyncCloud}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
+        onOpenStorageOptimizer={() => setIsStorageOptimizerOpen(true)}
       />
 
       {/* Main App Canvas */}
@@ -1321,6 +1353,7 @@ export default function App() {
           systemConfig={systemConfig}
           onToggleMaintenance={currentUser.role === 'admin' ? handleToggleMaintenance : undefined}
           onOpenReleaseVersion={currentUser.role === 'admin' ? () => setIsReleaseVersionModalOpen(true) : undefined}
+          onOpenStorageOptimizer={() => setIsStorageOptimizerOpen(true)}
         />
 
         {/* Scrollable Dashboard Workspace */}
@@ -1535,6 +1568,15 @@ export default function App() {
         onClose={() => setIsReleaseVersionModalOpen(false)}
         systemConfig={systemConfig}
         onReleaseVersion={handleReleaseVersion}
+      />
+
+      {/* Turbo Data & Storage Optimizer Modal */}
+      <StorageOptimizerModal
+        isOpen={isStorageOptimizerOpen}
+        onClose={() => setIsStorageOptimizerOpen(false)}
+        tasks={tasks}
+        users={users}
+        onTasksOptimized={(optimized) => setTasks(optimized)}
       />
     </div>
   );

@@ -26,6 +26,7 @@ import { UserAccount, UserRole, TaskVisibilityScope, SystemConfig } from '../typ
 import { verifyUserLogin, ROLE_CONFIGS } from '../utils/userPermissions';
 import { fetchUsersFromSupabase, saveUserToSupabase, supabase } from '../lib/supabase';
 import { soundFx } from '../utils/sound';
+import { initUserPartition } from '../utils/storageOptimizer';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -402,12 +403,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onRegisterUser(newUser);
       }
 
-      // 2. Point 3: Save directly to Supabase Cloud Database
+      // 3. Point 3: Save directly to Supabase Cloud Database
       saveUserToSupabase(newUser).catch((err) => {
         console.warn('Failed to sync new user to Supabase Cloud:', err);
       });
 
-      // 3. Update Local Storage and component state
+      // 4. Initialize Isolated Storage Partition for new user (Prevent cross-user leaks and lag)
+      try {
+        initUserPartition(newUser);
+      } catch (err) {
+        console.warn('Storage partition init warning:', err);
+      }
+
+      // 5. Update Local Storage and component state
       const updatedList = [newUser, ...allUsers.filter((u) => u.id !== newUser.id)];
       setCurrentUsersList(updatedList);
 
@@ -882,6 +890,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <option value="admin">អ្នកគ្រប់គ្រង (Admin) - សិទ្ធិពេញលេញ</option>
                   </select>
                 </div>
+              </div>
+            </div>
+
+            {/* Isolated Storage Partition notice */}
+            <div className="p-3 bg-emerald-50/90 border border-emerald-200/80 rounded-2xl flex items-center gap-2.5 text-xs text-emerald-800">
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-600 flex items-center justify-center shrink-0">
+                <Zap className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <p className="font-bold text-[11px] text-emerald-900 leading-tight">
+                  បែងចែកកន្លែងផ្ទុកទិន្នន័យដាច់ដោយឡែក (Isolated Storage)
+                </p>
+                <p className="text-[10px] text-emerald-700/90 leading-tight mt-0.5">
+                  ទិន្នន័យត្រូវបានបង្រួមតូច មិនប៉ះពាល់អ្នកដទៃ និងមិនធ្វើឱ្យ Web យឺតឡើយ។
+                </p>
               </div>
             </div>
 

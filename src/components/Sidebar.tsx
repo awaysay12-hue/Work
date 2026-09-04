@@ -21,6 +21,7 @@ import {
   Lock,
   FileText,
   Smartphone,
+  Zap,
 } from 'lucide-react';
 import { ViewFilterPeriod, DailyStreak, Task, UserAccount } from '../types';
 import { toKhmerNumber } from '../utils/translations';
@@ -51,6 +52,7 @@ interface SidebarProps {
   canSyncCloud?: boolean;
   onOpenAuthModal?: () => void;
   onLogout?: () => void;
+  onOpenStorageOptimizer?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -76,6 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   canSyncCloud = false,
   onOpenAuthModal,
   onLogout,
+  onOpenStorageOptimizer,
 }) => {
   const todayStr = getTodayDateString();
   const totalTasks = tasks.length;
@@ -381,6 +384,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <span className="text-[10px] text-indigo-300 group-hover:text-emerald-300 font-bold bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/60">
               Sync
+            </span>
+          </button>
+        )}
+
+        {/* Turbo Storage Optimizer Button in Sidebar */}
+        {onOpenStorageOptimizer && (
+          <button
+            onClick={onOpenStorageOptimizer}
+            className="w-full text-left p-2.5 rounded-xl bg-indigo-900/40 hover:bg-indigo-900/80 border border-emerald-500/30 hover:border-emerald-500/60 transition-all duration-200 flex items-center justify-between group cursor-pointer"
+            title="គ្រប់គ្រងកន្លែងផ្ទុកទិន្នន័យតាម User & បង្រួមទំហំ Data"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <Zap className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-white leading-tight truncate">
+                  Turbo Storage Engine
+                </p>
+                <p className="text-[10px] text-emerald-300 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  បង្រួមទិន្នន័យ 68% • 0ms
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] text-emerald-300 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+              Active
             </span>
           </button>
         )}

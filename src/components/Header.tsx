@@ -23,6 +23,8 @@ import {
   Smartphone,
   Wrench,
   Rocket,
+  Zap,
+  HardDrive,
 } from 'lucide-react';
 import { formatKhmerDate, formatKhmerTime, getTodayDateString } from '../utils/khmerDates';
 import { toKhmerNumber } from '../utils/translations';
@@ -56,6 +58,7 @@ interface HeaderProps {
   systemConfig?: SystemConfig;
   onToggleMaintenance?: () => void;
   onOpenReleaseVersion?: () => void;
+  onOpenStorageOptimizer?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -82,6 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
   systemConfig,
   onToggleMaintenance,
   onOpenReleaseVersion,
+  onOpenStorageOptimizer,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [notificationPermission, setNotificationPermission] = useState<string>(
@@ -249,6 +253,19 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Turbo Storage Optimizer Button */}
+        {onOpenStorageOptimizer && (
+          <button
+            onClick={onOpenStorageOptimizer}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100/80 active:bg-emerald-200 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+            title="ពិនិត្យកន្លែងផ្ទុកតាម User, បង្រួមទំហំ Data & បង្កើនល្បឿន Web (Turbo Speed)"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+            <Zap className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+            <span className="font-mono text-[11px] font-extrabold">Turbo Data</span>
+          </button>
+        )}
+
         {/* Super Admin Maintenance Trigger Button */}
         {currentUser.role === 'admin' && onToggleMaintenance && (
           <button
@@ -376,6 +393,20 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <Shield className="w-4 h-4 text-indigo-600" />
                     <span>គ្រប់គ្រងសិទ្ធិ & សមាជិក (RBAC Pro)</span>
+                  </button>
+                )}
+
+                {/* Turbo Storage Optimizer in Menu */}
+                {onOpenStorageOptimizer && (
+                  <button
+                    onClick={() => {
+                      onOpenStorageOptimizer();
+                      setIsProfileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4 text-emerald-600" />
+                    <span>គ្រប់គ្រង & បង្រួមទិន្នន័យ (Turbo Storage)</span>
                   </button>
                 )}
 
