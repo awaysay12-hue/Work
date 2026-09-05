@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Task, DailyStreak, UserAccount, ActivityLog, RolePermissions, UserRole } from '../types';
+import { Task, DailyStreak, UserAccount, ActivityLog, RolePermissions, UserRole, SystemConfig } from '../types';
 
 // Storage keys for custom Supabase credentials & engine mode
 export const SUPABASE_STORAGE_KEYS = {
@@ -303,6 +303,124 @@ export async function deleteUserFromSupabase(userId: string): Promise<{ success:
   }
 }
 
+/**
+ * Strict Database-Authoritative User Verification
+ * Directly queries Supabase 'users' table to ensure the user actually exists in the real cloud database.
+ */
+export async function verifyUserWithSupabaseDatabase(
+  identifier: string,
+  plainPassword?: string
+): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
+  if (!supabase) {
+    return { success: false, message: 'មិនអាចភ្ជាប់ទៅកាន់ Supabase Database បានទេ' };
+  }
+  try {
+    const cleanId = (identifier || '').trim().toLowerCase();
+    const cleanPass = (plainPassword || '').trim();
+
+    if (!cleanId) {
+      return { success: false, message: 'សូមបញ្ចូលអ៊ីមែល ឬឈ្មោះគណនីរបស់អ្នក' };
+    }
+
+    // Direct real-time query against Supabase users table
+    const { data, error } = await supabase
+      .from('users')
+      .select('*');
+
+    if (error) {
+      return { success: false, message: `បញ្ហា Database: ${error.message || 'Unknown error'}` };
+    }
+
+    if (!data || data.length === 0) {
+      return {
+        success: false,
+        message: '❌ មិនទាន់មានគណនីណាមួយក្នុង Database (Supabase) ទេ។ សូមទាក់ទង Super Admin!',
+      };
+    }
+
+    const allUsers = data.map(dbRowToUser);
+
+    // 1st Priority: Exact Email match
+    let matchedUser = allUsers.find(
+      (u) => u.email && u.email.trim().toLowerCase() === cleanId
+    );
+
+    // 2nd Priority: Username before @
+    if (!matchedUser) {
+      matchedUser = allUsers.find(
+        (u) =>
+          u.email &&
+          u.email.split('@')[0].trim().toLowerCase() === cleanId
+      );
+    }
+
+    // 3rd Priority: Exact Name or Khmer Name
+    if (!matchedUser) {
+      matchedUser = allUsers.find(
+        (u) =>
+          (u.name && u.name.trim().toLowerCase() === cleanId) ||
+          (u.khmerName && u.khmerName.trim().toLowerCase() === cleanId)
+      );
+    }
+
+    // 4th Priority: Phone match
+    if (!matchedUser) {
+      const rawDigits = cleanId.replace(/\D/g, '');
+      if (rawDigits.length >= 4) {
+        matchedUser = allUsers.find((u) => {
+          if (!u.phone) return false;
+          const uDigits = u.phone.replace(/\D/g, '');
+          return uDigits && (uDigits === rawDigits || uDigits.endsWith(rawDigits));
+        });
+      }
+    }
+
+    // 5th Priority: ID match
+    if (!matchedUser) {
+      matchedUser = allUsers.find((u) => u.id && u.id.trim().toLowerCase() === cleanId);
+    }
+
+    // If user is not found in the real Supabase database, REJECT
+    if (!matchedUser) {
+      return {
+        success: false,
+        message: '❌ គណនីនេះមិនមានក្នុង Database (Supabase) ទេ។ ត្រូវតែមាន User ពិតប្រាកដក្នុង Supabase ទើបអាចចូលប្រើប្រាស់បាន!',
+      };
+    }
+
+    // Inactive status check
+    if (matchedUser.status === 'inactive') {
+      return {
+        success: false,
+        message: '⚠️ គណនីនេះត្រូវបានផ្អាកដំណើរការ (Inactive) ក្នុង Database។ សូមទាក់ទង Super Admin',
+      };
+    }
+
+    // Strict Password Verification
+    const storedPass = (matchedUser.password || '').trim();
+    if (storedPass) {
+      if (cleanPass !== storedPass) {
+        return {
+          success: false,
+          message: '❌ ពាក្យសម្ងាត់មិនត្រឹមត្រូវទេ! សូមពិនិត្យពាក្យសម្ងាត់របស់អ្នកម្តងទៀត',
+        };
+      }
+    } else {
+      const validDefaults = ['123', '123456', 'manager123', 'member123', 'viewer123'];
+      if (!validDefaults.includes(cleanPass)) {
+        return {
+          success: false,
+          message: '❌ ពាក្យសម្ងាត់មិនត្រឹមត្រូវទេ! (Default: 123456)',
+        };
+      }
+    }
+
+    return { success: true, user: matchedUser };
+  } catch (err: any) {
+    return { success: false, message: `កំហុសក្នុងការផ្ទៀងផ្ទាត់ជាមួយ Database: ${err?.message || 'Error'}` };
+  }
+}
+
 /* ==========================================================================
    DAILY STREAK CONVERTERS & CRUD (Per-User Scoped)
    ========================================================================== */
@@ -475,6 +593,48 @@ export async function saveRolePermissionsToSupabase(matrix: Record<UserRole, Rol
     const { error } = await supabase.from('role_permissions').upsert({
       id: 'matrix',
       matrix,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err };
+  }
+}
+
+/* ==========================================================================
+   SYSTEM CONFIG CONVERTERS & CRUD (Maintenance Mode, Versioning)
+   ========================================================================== */
+
+export async function fetchSystemConfigFromSupabase(): Promise<{ config: SystemConfig | null; error: Error | null }> {
+  if (!supabase) {
+    return { config: null, error: new Error('Supabase client not initialized') };
+  }
+  try {
+    const { data, error } = await supabase
+      .from('system_config')
+      .select('*')
+      .eq('id', 'config')
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+    if (!data || !data.config) return { config: null, error: null };
+    return { config: data.config, error: null };
+  } catch (err: any) {
+    return { config: null, error: err };
+  }
+}
+
+export async function saveSystemConfigToSupabase(config: SystemConfig): Promise<{ success: boolean; error: Error | null }> {
+  if (!supabase) {
+    return { success: false, error: new Error('Supabase client not initialized') };
+  }
+  try {
+    const { error } = await supabase.from('system_config').upsert({
+      id: 'config',
+      config,
       updated_at: new Date().toISOString(),
     });
     if (error) throw error;

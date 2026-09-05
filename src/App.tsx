@@ -41,6 +41,8 @@ import {
   syncAllActivityLogsToSupabase,
   fetchRolePermissionsFromSupabase,
   saveRolePermissionsToSupabase,
+  fetchSystemConfigFromSupabase,
+  saveSystemConfigToSupabase,
   dbRowToTask,
   dbRowToUser,
 } from './lib/supabase';
@@ -280,13 +282,17 @@ export default function App() {
   // Toggle Maintenance Mode
   const handleToggleMaintenance = (enable?: boolean) => {
     const nextVal = typeof enable === 'boolean' ? enable : !systemConfig.isMaintenance;
-    setSystemConfig((prev) => ({
-      ...prev,
+    const updatedConfig: SystemConfig = {
+      ...systemConfig,
       isMaintenance: nextVal,
       maintenanceStartedBy: currentUser?.khmerName || 'Super Admin',
       maintenanceStartTime: nextVal ? new Date().toISOString() : undefined,
       lastUpdated: new Date().toLocaleDateString('km-KH'),
-    }));
+    };
+    setSystemConfig(updatedConfig);
+    saveSystemConfigToSupabase(updatedConfig).catch((err) =>
+      console.warn('Failed to sync systemConfig to Supabase:', err)
+    );
     soundFx.playCelebration();
   };
 
@@ -296,18 +302,23 @@ export default function App() {
     try {
       const opt = runStorageOptimization(tasks, users);
       setTasks(opt.optimizedTasks);
+      syncAllTasksToSupabase(opt.optimizedTasks).catch(() => {});
     } catch (err) {
       console.warn('Storage optimization during release warning:', err);
     }
 
-    setSystemConfig((prev) => ({
-      ...prev,
+    const updatedConfig: SystemConfig = {
+      ...systemConfig,
       currentVersion: newVersion,
       releaseNotes,
-      isMaintenance: exitMaintenance ? false : prev.isMaintenance,
+      isMaintenance: exitMaintenance ? false : systemConfig.isMaintenance,
       lastUpdated: new Date().toLocaleDateString('km-KH'),
       showNewVersionBanner: true,
-    }));
+    };
+    setSystemConfig(updatedConfig);
+    saveSystemConfigToSupabase(updatedConfig).catch((err) =>
+      console.warn('Failed to sync systemConfig to Supabase:', err)
+    );
     soundFx.playCelebration();
   };
 
@@ -412,6 +423,11 @@ export default function App() {
         }
         return deduped.slice(0, 100);
       });
+
+      // Persist log to Supabase Cloud
+      saveActivityLogToSupabase(newLog).catch((err) =>
+        console.warn('Failed to save activity log to Supabase:', err)
+      );
     },
     [currentUser]
   );
@@ -594,12 +610,13 @@ export default function App() {
       setSupabaseSyncMessage('កំពុងទាញទិន្នន័យពី Cloud Database...');
 
       try {
-        const [tasksRes, usersRes, streakRes, logsRes, rbacRes] = await Promise.all([
+        const [tasksRes, usersRes, streakRes, logsRes, rbacRes, configRes] = await Promise.all([
           fetchTasksFromSupabase(),
           fetchUsersFromSupabase(),
           fetchStreakFromSupabase(currentUser?.id),
           fetchActivityLogsFromSupabase(),
           fetchRolePermissionsFromSupabase(),
+          fetchSystemConfigFromSupabase(),
         ]);
 
         if (!isMounted) return;
@@ -652,6 +669,13 @@ export default function App() {
           saveRolePermissionsToSupabase(rolePermissions).catch(() => {});
         }
 
+        // 6. Sync System Config (Maintenance Mode & Release Notes)
+        if (configRes.config) {
+          setSystemConfig(configRes.config);
+        } else if (!configRes.error) {
+          saveSystemConfigToSupabase(systemConfig).catch(() => {});
+        }
+
         if (tasksRes.error || usersRes.error) {
           setSupabaseSyncStatus('error');
           setSupabaseSyncMessage('ត្រូវការ Run SQL Script ក្នុង Supabase Dashboard ដើម្បីបង្កើត Tables');
@@ -671,6 +695,7 @@ export default function App() {
     // Supabase Real-time listeners
     let tasksChannel: any = null;
     let usersChannel: any = null;
+    let configChannel: any = null;
 
     try {
       if (supabase) {
@@ -711,6 +736,7 @@ export default function App() {
             (payload) => {
               if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                 const updatedUser = dbRowToUser(payload.new);
+                if (LEGACY_MOCK_USER_IDS.has(updatedUser.id)) return;
                 setUsers((prev) => {
                   const exists = prev.some((u) => u.id === updatedUser.id);
                   let nextUsers: UserAccount[];
@@ -745,13 +771,36 @@ export default function App() {
             }
           )
           .subscribe();
+
+        // Real-time listener for system_config
+        configChannel = supabase
+          .channel('public:system_config_stream')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'system_config' },
+            (payload) => {
+              if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && payload.new?.config) {
+                setSystemConfig(payload.new.config);
+              }
+            }
+          )
+          .subscribe();
       }
     } catch (err) {
       console.warn('Realtime channels error:', err);
     }
 
-    // Auto-polling & Tab focus listener for multi-device sync
-    const handleWindowFocus = () => {
+    // Cooldown-protected Multi-device Sync (Conserves Supabase API Quota & Usage Plan)
+    let lastFetchTime = Date.now();
+    const FETCH_COOLDOWN_MS = 60000; // 60s cooldown
+
+    const handleWindowFocus = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastFetchTime < FETCH_COOLDOWN_MS) {
+        return; // Skip redundant API calls if recently fetched
+      }
+      lastFetchTime = now;
+
       fetchUsersFromSupabase().then((res) => {
         if (res.users && res.users.length > 0) {
           setUsers((prev) => {
@@ -772,27 +821,43 @@ export default function App() {
           setTasks(res.tasks);
         }
       }).catch(() => {});
+
+      fetchSystemConfigFromSupabase().then((res) => {
+        if (res.config) {
+          setSystemConfig(res.config);
+        }
+      }).catch(() => {});
     };
 
+    // Long-interval idle safeguard (Realtime WebSockets already push instant changes)
     const pollingInterval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        handleWindowFocus();
+        handleWindowFocus(false);
       }
-    }, 10000);
+    }, 180000); // 3 minutes idle refresh
 
-    window.addEventListener('focus', handleWindowFocus);
-    document.addEventListener('visibilitychange', handleWindowFocus);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleWindowFocus(false);
+      }
+    };
+
+    window.addEventListener('focus', () => handleWindowFocus(false));
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       isMounted = false;
       clearInterval(pollingInterval);
-      window.removeEventListener('focus', handleWindowFocus);
-      document.removeEventListener('visibilitychange', handleWindowFocus);
+      window.removeEventListener('focus', () => handleWindowFocus(false));
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       if (tasksChannel && supabase) {
         supabase.removeChannel(tasksChannel);
       }
       if (usersChannel && supabase) {
         supabase.removeChannel(usersChannel);
+      }
+      if (configChannel && supabase) {
+        supabase.removeChannel(configChannel);
       }
     };
   }, []);
@@ -1614,7 +1679,10 @@ export default function App() {
         onClose={() => setIsStorageOptimizerOpen(false)}
         tasks={tasks}
         users={users}
-        onTasksOptimized={(optimized) => setTasks(optimized)}
+        onTasksOptimized={(optimized) => {
+          setTasks(optimized);
+          syncAllTasksToSupabase(optimized).catch(() => {});
+        }}
       />
 
       {/* Super Admin Access Links & Whitelist Modal */}

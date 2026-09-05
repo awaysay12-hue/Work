@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, UserRole, TaskVisibilityScope, SystemConfig } from '../types';
 import { verifyUserLogin, ROLE_CONFIGS, LEGACY_MOCK_USER_IDS } from '../utils/userPermissions';
-import { fetchUsersFromSupabase, saveUserToSupabase, supabase } from '../lib/supabase';
+import { fetchUsersFromSupabase, saveUserToSupabase, verifyUserWithSupabaseDatabase, supabase } from '../lib/supabase';
 import { soundFx } from '../utils/sound';
 import { initUserPartition } from '../utils/storageOptimizer';
 import {
@@ -290,46 +290,88 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsLoading(true);
 
     try {
-      let candidatePool = [...currentUsersList];
+      // 1. Strict Real Supabase Database Verification
+      if (supabase) {
+        const dbResult = await verifyUserWithSupabaseDatabase(emailOrName, password);
 
-      // Point 3: Fetch fresh remote users on login attempt from real database
-      try {
-        if (supabase) {
-          const { users: remoteUsers } = await fetchUsersFromSupabase();
-          if (remoteUsers && remoteUsers.length > 0) {
-            const cleanedRemote = remoteUsers.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
-            const map = new Map<string, UserAccount>();
-            candidatePool.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)).forEach((u) => map.set(u.id, u));
-            cleanedRemote.forEach((u) => map.set(u.id, u));
-            candidatePool = Array.from(map.values());
-            setCurrentUsersList(candidatePool);
+        if (dbResult.success && dbResult.user) {
+          const verifiedUser = dbResult.user;
+
+          // Whitelist Enforcement for Member / User Portal
+          if (internalPortalMode === 'user') {
+            const authCheck = checkUserAuthorization(emailOrName, [verifiedUser]);
+            if (!authCheck.isAuthorized) {
+              setIsLoading(false);
+              soundFx.playAlert();
+              setErrorMessage(
+                authCheck.reason ||
+                  '❌ គណនីនេះមិនទាន់ត្រូវបាន Super Admin អនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin!'
+              );
+              return;
+            }
           }
-        }
-      } catch {
-        // Fallback to local
-      }
 
-      // Whitelist Enforcement for Member / User Portal
-      if (internalPortalMode === 'user') {
-        const authCheck = checkUserAuthorization(emailOrName, candidatePool);
-        if (!authCheck.isAuthorized) {
+          // If in admin portal, ensure user has admin role
+          if (internalPortalMode === 'admin' && verifiedUser.role !== 'admin') {
+            setIsLoading(false);
+            soundFx.playAlert();
+            setErrorMessage(
+              '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
+            );
+            return;
+          }
+
+          // Super Admin maintenance check: if system is under maintenance, block non-admin users
+          if (systemConfig?.isMaintenance && verifiedUser.role !== 'admin') {
+            setIsLoading(false);
+            soundFx.playAlert();
+            setErrorMessage(
+              'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
+            );
+            return;
+          }
+
+          setIsLoading(false);
+          soundFx.playCelebration();
+          setSuccessMessage(`ស្វាគមន៍! សួស្តី ${verifiedUser.khmerName || verifiedUser.name} (ផ្ទៀងផ្ទាត់ជាមួយ Database ជោគជ័យ ✅)`);
+
+          // Persist session if rememberMe is enabled
+          if (rememberMe) {
+            try {
+              localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(verifiedUser));
+              localStorage.setItem('taskmate_current_user_id', verifiedUser.id);
+              localStorage.setItem('kh_daily_current_user_id_v1', verifiedUser.id);
+              localStorage.setItem('taskmate_auth_authenticated', 'true');
+              localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+              setSavedDeviceAccount(verifiedUser);
+            } catch {
+              // Ignore
+            }
+          }
+
+          setTimeout(() => {
+            onLoginSuccess(verifiedUser);
+          }, 300);
+          return;
+        } else {
+          // Reject with clear database error message
           setIsLoading(false);
           soundFx.playAlert();
           setErrorMessage(
-            authCheck.reason ||
-              '❌ គណនីនេះមិនទាន់ត្រូវបាន Super Admin បង្កើត ឬអនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin ដើម្បីទទួលបានគណនី និង Link ចូលប្រើប្រាស់។'
+            dbResult.message ||
+              '❌ គណនីនេះមិនមានក្នុង Database (Supabase) ទេ។ សូមទាក់ទង Super Admin ឬចុះឈ្មោះគណនីថ្មី!'
           );
           return;
         }
       }
 
-      // Point 1: Verify Credentials strictly
+      // Fallback only if Supabase client is offline/uninitialized
+      const candidatePool = currentUsersList.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
       const result = verifyUserLogin(emailOrName, password, candidatePool);
 
       setIsLoading(false);
 
       if (result.success && result.user) {
-        // If in admin portal, ensure user has admin role
         if (internalPortalMode === 'admin' && result.user.role !== 'admin') {
           soundFx.playAlert();
           setErrorMessage(
@@ -338,7 +380,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           return;
         }
 
-        // Super Admin maintenance check: if system is under maintenance, block non-admin users
         if (systemConfig?.isMaintenance && result.user.role !== 'admin') {
           soundFx.playAlert();
           setErrorMessage(
@@ -350,7 +391,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         soundFx.playCelebration();
         setSuccessMessage(`ស្វាគមន៍! សួស្តី ${result.user.khmerName || result.user.name}`);
 
-        // Persist session if rememberMe is enabled
         if (rememberMe) {
           try {
             localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(result.user));
@@ -371,7 +411,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         soundFx.playAlert();
         setErrorMessage(
           result.message ||
-            'ការចូលប្រើប្រាស់មិនជោគជ័យ! សូមពិនិត្យអ៊ីមែល ឬពាក្យសម្ងាត់ (Default: 123456 ឬ 123)'
+            'ការចូលប្រើប្រាស់មិនជោគជ័យ! សូមពិនិត្យអ៊ីមែល ឬពាក្យសម្ងាត់'
         );
       }
     } catch {
@@ -382,7 +422,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   // 1-Click Auto-Login for this device's own saved user account
-  const handleAutoLoginDeviceAccount = () => {
+  const handleAutoLoginDeviceAccount = async () => {
     if (!savedDeviceAccount) return;
 
     if (systemConfig?.isMaintenance && savedDeviceAccount.role !== 'admin') {
@@ -393,9 +433,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    setIsLoading(true);
+
+    // Verify against Supabase to make sure user wasn't deleted or disabled in DB
+    if (supabase) {
+      try {
+        const dbResult = await verifyUserWithSupabaseDatabase(
+          savedDeviceAccount.email || savedDeviceAccount.name,
+          savedDeviceAccount.password
+        );
+        if (!dbResult.success || !dbResult.user) {
+          setIsLoading(false);
+          soundFx.playAlert();
+          setErrorMessage(
+            '❌ គណនីដែលបាន Save លើឧបករណ៍នេះ មិនមានក្នុង Database (Supabase) ឬត្រូវបានផ្លាស់ប្តូរពាក្យសម្ងាត់ទេ។ សូម Login ឡើងវិញ!'
+          );
+          handleForgetDeviceAccount();
+          return;
+        }
+      } catch {
+        // Continue if offline
+      }
+    }
+
     soundFx.playCelebration();
     setSuccessMessage(`ស្វាគមន៍ការត្រឡប់មកវិញ! សួស្តី ${savedDeviceAccount.khmerName || savedDeviceAccount.name}`);
-    setIsLoading(true);
 
     setTimeout(() => {
       try {
@@ -409,7 +471,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       setIsLoading(false);
       onLoginSuccess(savedDeviceAccount);
-    }, 350);
+    }, 300);
   };
 
   // Forget device-saved account to allow entering different credentials cleanly
