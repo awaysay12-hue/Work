@@ -21,12 +21,22 @@ import {
   Zap,
   ArrowRight,
   Trash2,
+  Crown,
+  Briefcase,
+  Info,
 } from 'lucide-react';
 import { UserAccount, UserRole, TaskVisibilityScope, SystemConfig } from '../types';
-import { verifyUserLogin, ROLE_CONFIGS } from '../utils/userPermissions';
+import { verifyUserLogin, ROLE_CONFIGS, LEGACY_MOCK_USER_IDS } from '../utils/userPermissions';
 import { fetchUsersFromSupabase, saveUserToSupabase, supabase } from '../lib/supabase';
 import { soundFx } from '../utils/sound';
 import { initUserPartition } from '../utils/storageOptimizer';
+import {
+  PortalMode,
+  getPortalModeFromUrl,
+  getAuthTokenFromUrl,
+  cleanUrlTokens,
+  checkUserAuthorization,
+} from '../utils/portalLinks';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -38,6 +48,8 @@ interface AuthModalProps {
   forceLoginScreen?: boolean;
   isFullScreen?: boolean;
   systemConfig?: SystemConfig;
+  portalMode?: PortalMode;
+  onSwitchPortalMode?: (mode: PortalMode) => void;
 }
 
 const AVATAR_COLORS = [
@@ -59,11 +71,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   forceLoginScreen = false,
   isFullScreen = false,
   systemConfig,
+  portalMode,
+  onSwitchPortalMode,
 }) => {
+  const [internalPortalMode, setInternalPortalMode] = useState<PortalMode>(() => {
+    return portalMode || getPortalModeFromUrl();
+  });
+
   const [activeTab, setActiveTab] = useState<'login' | 'enroll'>('login');
   const [currentUsersList, setCurrentUsersList] = useState<UserAccount[]>(() => {
     return Array.isArray(users) ? users : [];
   });
+
+  useEffect(() => {
+    if (portalMode) {
+      setInternalPortalMode(portalMode);
+    }
+  }, [portalMode]);
 
   // Device-Private Saved Account (For 1-click Auto-login of this device's own user only)
   const [savedDeviceAccount, setSavedDeviceAccount] = useState<UserAccount | null>(() => {
@@ -131,10 +155,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       try {
         const { users: remoteUsers, error } = await fetchUsersFromSupabase();
         if (!error && remoteUsers && remoteUsers.length > 0 && isMounted) {
+          const cleanedRemote = remoteUsers.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
           setCurrentUsersList((prev) => {
             const map = new Map<string, UserAccount>();
-            prev.forEach((u) => { if (u && u.id) map.set(u.id, u); });
-            remoteUsers.forEach((u) => { if (u && u.id) map.set(u.id, u); });
+            prev.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)).forEach((u) => map.set(u.id, u));
+            cleanedRemote.forEach((u) => map.set(u.id, u));
             const merged = Array.from(map.values());
 
             try {
@@ -145,7 +170,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }
             return merged;
           });
-          setCloudSyncedCount(remoteUsers.length);
+          setCloudSyncedCount(cleanedRemote.length);
         }
       } catch (err) {
         console.warn('Auto Cloud Sync info:', err);
@@ -159,6 +184,63 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       isMounted = false;
     };
   }, [isOpen]);
+
+  // Cross-device Instant Magic Access Link Processing
+  useEffect(() => {
+    if (!isOpen) return;
+    const token = getAuthTokenFromUrl();
+    if (token) {
+      setIsLoading(true);
+      const authorizedUser: UserAccount = {
+        id: token.id,
+        name: token.name,
+        khmerName: token.khmerName,
+        email: token.email,
+        phone: token.phone,
+        password: token.password || '123',
+        role: (token.role as UserRole) || 'member',
+        department: token.department || 'ទូទៅ',
+        avatarColor: 'from-indigo-600 to-cyan-500',
+        avatarInitial: (token.khmerName || token.name || 'U').charAt(0),
+        status: 'active',
+        joinedDate: new Date().toISOString().split('T')[0],
+      };
+
+      setCurrentUsersList((prev) => {
+        const map = new Map<string, UserAccount>();
+        prev.forEach((u) => { if (u && u.id) map.set(u.id, u); });
+        map.set(authorizedUser.id, authorizedUser);
+        const merged = Array.from(map.values());
+        try {
+          localStorage.setItem('taskmate_users', JSON.stringify(merged));
+          localStorage.setItem('kh_daily_users_data_v1', JSON.stringify(merged));
+          localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(authorizedUser));
+          localStorage.setItem('taskmate_current_user_id', authorizedUser.id);
+          localStorage.setItem('kh_daily_current_user_id_v1', authorizedUser.id);
+          localStorage.setItem('taskmate_auth_authenticated', 'true');
+          localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+        } catch {
+          // Ignore
+        }
+        return merged;
+      });
+
+      try {
+        initUserPartition(authorizedUser);
+      } catch {
+        // Ignore
+      }
+
+      cleanUrlTokens();
+      soundFx.playCelebration();
+      setSuccessMessage(`🎉 ស្វាគមន៍ ${authorizedUser.khmerName}! បានផ្ទៀងផ្ទាត់សិទ្ធិដោយជោគជ័យតាមរយៈ Link អនុញ្ញាតពី Super Admin`);
+
+      setTimeout(() => {
+        setIsLoading(false);
+        onLoginSuccess(authorizedUser);
+      }, 500);
+    }
+  }, [isOpen, onLoginSuccess]);
 
   if (!isOpen) return null;
 
@@ -210,14 +292,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       let candidatePool = [...currentUsersList];
 
-      // Point 3: Fetch fresh remote users on login attempt
+      // Point 3: Fetch fresh remote users on login attempt from real database
       try {
         if (supabase) {
           const { users: remoteUsers } = await fetchUsersFromSupabase();
           if (remoteUsers && remoteUsers.length > 0) {
+            const cleanedRemote = remoteUsers.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
             const map = new Map<string, UserAccount>();
-            candidatePool.forEach((u) => { if (u && u.id) map.set(u.id, u); });
-            remoteUsers.forEach((u) => { if (u && u.id) map.set(u.id, u); });
+            candidatePool.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)).forEach((u) => map.set(u.id, u));
+            cleanedRemote.forEach((u) => map.set(u.id, u));
             candidatePool = Array.from(map.values());
             setCurrentUsersList(candidatePool);
           }
@@ -226,12 +309,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         // Fallback to local
       }
 
+      // Whitelist Enforcement for Member / User Portal
+      if (internalPortalMode === 'user') {
+        const authCheck = checkUserAuthorization(emailOrName, candidatePool);
+        if (!authCheck.isAuthorized) {
+          setIsLoading(false);
+          soundFx.playAlert();
+          setErrorMessage(
+            authCheck.reason ||
+              '❌ គណនីនេះមិនទាន់ត្រូវបាន Super Admin បង្កើត ឬអនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin ដើម្បីទទួលបានគណនី និង Link ចូលប្រើប្រាស់។'
+          );
+          return;
+        }
+      }
+
       // Point 1: Verify Credentials strictly
       const result = verifyUserLogin(emailOrName, password, candidatePool);
 
       setIsLoading(false);
 
       if (result.success && result.user) {
+        // If in admin portal, ensure user has admin role
+        if (internalPortalMode === 'admin' && result.user.role !== 'admin') {
+          soundFx.playAlert();
+          setErrorMessage(
+            '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
+          );
+          return;
+        }
+
         // Super Admin maintenance check: if system is under maintenance, block non-admin users
         if (systemConfig?.isMaintenance && result.user.role !== 'admin') {
           soundFx.playAlert();
@@ -450,27 +556,57 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden my-auto animate-scale-in"
     >
       {/* Top Decorative Header */}
-      <div className="relative px-6 pt-6 pb-5 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white border-b border-indigo-900/40">
+      <div
+        className={`relative px-6 pt-6 pb-5 text-white border-b ${
+          internalPortalMode === 'admin'
+            ? 'bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 border-indigo-900/50'
+            : 'bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 border-emerald-900/50'
+        }`}
+      >
         {/* Ambient Glows */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-emerald-500/15 rounded-full blur-2xl pointer-events-none" />
+        <div
+          className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl pointer-events-none ${
+            internalPortalMode === 'admin' ? 'bg-indigo-500/20' : 'bg-emerald-500/20'
+          }`}
+        />
+        <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-cyan-500/15 rounded-full blur-2xl pointer-events-none" />
 
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 text-white font-black text-lg flex items-center justify-center shadow-lg shadow-indigo-600/30 ring-2 ring-white/20 shrink-0">
-              <ShieldCheck className="w-6 h-6 text-white" />
+            <div
+              className={`w-11 h-11 rounded-2xl text-white font-black text-lg flex items-center justify-center shadow-lg ring-2 ring-white/20 shrink-0 ${
+                internalPortalMode === 'admin'
+                  ? 'bg-gradient-to-tr from-amber-500 via-indigo-600 to-indigo-500 shadow-indigo-600/30'
+                  : 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 shadow-emerald-600/30'
+              }`}
+            >
+              {internalPortalMode === 'admin' ? (
+                <Crown className="w-6 h-6 text-amber-300" />
+              ) : (
+                <Briefcase className="w-6 h-6 text-emerald-200" />
+              )}
             </div>
             <div>
               <h2 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                <span>{activeTab === 'login' ? 'ប្រព័ន្ធចូលប្រើប្រាស់' : 'ចុះឈ្មោះគណនីថ្មី'}</span>
-                <span className="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/30 text-indigo-200 px-2.5 py-0.5 rounded-full border border-indigo-400/30">
-                  {activeTab === 'login' ? 'ចំណុចទី ១' : 'ចំណុចទី ៤'}
+                <span>
+                  {internalPortalMode === 'admin'
+                    ? 'ច្រកចូលសម្រាប់ Super Admin'
+                    : 'ច្រកចូលសម្រាប់សមាជិក'}
+                </span>
+                <span
+                  className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border ${
+                    internalPortalMode === 'admin'
+                      ? 'bg-amber-500/20 text-amber-200 border-amber-400/30'
+                      : 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30'
+                  }`}
+                >
+                  {internalPortalMode === 'admin' ? 'Admin Portal' : 'Member Whitelist'}
                 </span>
               </h2>
-              <p className="text-xs text-indigo-200/80 mt-0.5">
-                {activeTab === 'login'
-                  ? 'ផ្ទៀងផ្ទាត់គណនី និង Cloud Database'
-                  : 'បង្កើតគណនីថ្មី រក្សាទុកក្នុង Cloud ភ្លាមៗ'}
+              <p className="text-xs text-slate-300 mt-0.5">
+                {internalPortalMode === 'admin'
+                  ? 'គ្រប់គ្រងប្រព័ន្ធ កិច្ចការ និងគណនីបុគ្គលិកទាំងអស់'
+                  : 'ចូលប្រើប្រាស់កិច្ចការប្រចាំថ្ងៃរបស់អ្នក (គណនីមានការអនុញ្ញាត)'}
               </p>
             </div>
           </div>
@@ -486,8 +622,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
         </div>
 
-        {/* Tab Switcher: Login (Point 1) vs Enroll (Point 4) */}
-        <div className="mt-4 grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 rounded-2xl border border-indigo-500/30 text-xs shadow-inner">
+        {/* Tab Switcher */}
+        <div className="mt-4 grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 rounded-2xl border border-white/10 text-xs shadow-inner">
           <button
             type="button"
             onClick={() => {
@@ -497,7 +633,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }}
             className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold transition-all cursor-pointer ${
               activeTab === 'login'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
+                ? internalPortalMode === 'admin'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
+                  : 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
                 : 'text-slate-300 hover:text-white hover:bg-white/5'
             }`}
           >
@@ -514,12 +652,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }}
             className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold transition-all cursor-pointer ${
               activeTab === 'enroll'
-                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
+                ? 'bg-slate-800 text-white shadow-sm'
                 : 'text-slate-300 hover:text-white hover:bg-white/5'
             }`}
           >
-            <UserPlus className="w-4 h-4" />
-            <span>ចុះឈ្មោះថ្មី (Enroll)</span>
+            {internalPortalMode === 'admin' ? (
+              <>
+                <UserPlus className="w-4 h-4" />
+                <span>បង្កើតគណនី (Enroll)</span>
+              </>
+            ) : (
+              <>
+                <Info className="w-4 h-4 text-emerald-400" />
+                <span>របៀបទទួលគណនី</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -755,6 +902,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* 2. ENROLL / REGISTER NEW USER FORM (Point 4) */}
         {activeTab === 'enroll' && (
+          internalPortalMode === 'user' ? (
+            <div className="space-y-4 py-2 animate-fade-in">
+              <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-900 space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
+                  <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>គណនីត្រូវតែបង្កើត និងអនុញ្ញាតដោយ Super Admin</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  ដើម្បីធានាសុវត្ថិភាពទិន្នន័យ និងឯកជនភាពការងារ គណនីសមាជិកទាំងអស់មិនអាចចុះឈ្មោះដោយសេរីបានឡើយ។ មានតែបុគ្គលិកដែលមានក្នុងតារាងដែល Super Admin បានបង្កើតប៉ុណ្ណោះ ទើបអាចចូលប្រើប្រាស់បាន។
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2.5 text-slate-700">
+                <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>របៀបស្នើសុំគណនី និង Link ចូលប្រើប្រាស់៖</span>
+                </p>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 text-[11px] leading-relaxed">
+                  <li>ទាក់ទងមកកាន់ Super Admin (Telegram ឬ ទូរស័ព្ទ)</li>
+                  <li>ផ្តល់ឈ្មោះពេញ លេខទូរស័ព្ទ និងផ្នែកការងាររបស់អ្នក</li>
+                  <li>Super Admin នឹងបង្កើតគណនី និងផ្ញើ Link ឬ Passcode ចូលប្រើប្រាស់ផ្ទាល់ខ្លួនជូនអ្នក</li>
+                </ol>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('login');
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                }}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+              >
+                ត្រឡប់ទៅផ្ទាំង Login (Sign In)
+              </button>
+            </div>
+          ) : (
           <form onSubmit={handleEnrollUser} className="space-y-3.5">
             {/* Khmer Full Name */}
             <div>
@@ -939,6 +1123,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
             </div>
           </form>
+          )
+        )}
+      </div>
+
+      {/* Dedicated Portal Switcher Footer */}
+      <div className="px-5 py-3 bg-slate-50 border-t border-slate-200/80 flex items-center justify-center text-xs">
+        {internalPortalMode === 'user' ? (
+          <button
+            type="button"
+            onClick={() => {
+              setInternalPortalMode('admin');
+              onSwitchPortalMode?.('admin');
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('portal', 'admin');
+                window.history.replaceState({}, '', url.toString());
+              } catch {}
+            }}
+            className="w-full text-center text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors py-1 cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-500" />
+            <span>តើអ្នកជា Super Admin? ចូលតាមច្រក Super Admin →</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setInternalPortalMode('user');
+              onSwitchPortalMode?.('user');
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('portal', 'user');
+                window.history.replaceState({}, '', url.toString());
+              } catch {}
+            }}
+            className="w-full text-center text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors py-1 cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <Briefcase className="w-3.5 h-3.5 text-emerald-600" />
+            <span>តើអ្នកជាសមាជិកក្រុម? ចូលតាមច្រកសមាជិក (Member Portal) →</span>
+          </button>
         )}
       </div>
     </div>

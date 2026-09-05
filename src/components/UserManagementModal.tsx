@@ -32,6 +32,7 @@ import {
   User as UserIcon,
   RefreshCw,
   Cloud,
+  Link2,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -71,6 +72,7 @@ interface UserManagementModalProps {
   tasksCountByUser?: Record<string, number>;
   onManualSync?: () => Promise<void>;
   isSyncing?: boolean;
+  onOpenPortalLinks?: () => void;
 }
 
 export const UserManagementModal: React.FC<UserManagementModalProps> = ({
@@ -90,6 +92,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   tasksCountByUser = {},
   onManualSync,
   isSyncing = false,
+  onOpenPortalLinks,
 }) => {
   const [activeTab, setActiveTab] = useState<'members' | 'roles' | 'logs'>('members');
   const [searchQuery, setSearchQuery] = useState('');
@@ -531,6 +534,17 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
                       <span className="hidden sm:inline">{isSyncing ? 'កំពុង Sync...' : 'Sync Cloud'}</span>
+                    </button>
+                  )}
+
+                  {onOpenPortalLinks && (
+                    <button
+                      onClick={onOpenPortalLinks}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-indigo-50 to-cyan-50 hover:from-indigo-100 hover:to-cyan-100 text-indigo-800 rounded-xl text-xs font-bold transition-all border border-indigo-200 cursor-pointer shadow-xs"
+                      title="បង្កើត និងចែករំលែក Link ច្រកចូលសមាជិក (Whitelist Access Links)"
+                    >
+                      <Link2 className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Link សមាជិក & Whitelist</span>
                     </button>
                   )}
 

@@ -479,6 +479,19 @@ export const DEMO_LOGIN_ACCOUNTS: DemoCredential[] = [
   },
 ];
 
+export const LEGACY_MOCK_USER_IDS = new Set([
+  'user-mgr-1',
+  'user-mem-1',
+  'user-mem-2',
+  'user-view-1',
+  'user-2',
+  'user-3',
+  'user-4',
+  'user-5',
+  'demo-user-1',
+  'demo-user-2',
+]);
+
 export function verifyUserLogin(
   identifier: string,
   pass: string,
@@ -491,13 +504,13 @@ export function verifyUserLogin(
     return { success: false, message: 'សូមបញ្ចូលអ៊ីមែល ឬឈ្មោះគណនី និងពាក្យសម្ងាត់ឱ្យបានត្រឹមត្រូវ' };
   }
 
-  // Combine passed users list with LocalStorage & INITIAL_USERS to ensure accounts resolve correctly
+  // Combine passed users list with LocalStorage & INITIAL_USERS, strictly pruning all mock demo users
   const pool: UserAccount[] = [];
   const seenIds = new Set<string>();
 
-  // 1. Add users from parameter (most current live users from memory or database)
+  // 1. Add users from parameter (most current live users from memory or real database)
   (Array.isArray(usersList) ? usersList : []).forEach((u) => {
-    if (u && u.id && !seenIds.has(u.id)) {
+    if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id) && !seenIds.has(u.id)) {
       seenIds.add(u.id);
       pool.push(u);
     }
@@ -512,7 +525,7 @@ export function verifyUserLogin(
       const parsedLocal: UserAccount[] = JSON.parse(rawLocal);
       if (Array.isArray(parsedLocal)) {
         parsedLocal.forEach((u) => {
-          if (u && u.id && !seenIds.has(u.id)) {
+          if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id) && !seenIds.has(u.id)) {
             seenIds.add(u.id);
             pool.push(u);
           }
@@ -525,7 +538,7 @@ export function verifyUserLogin(
 
   // 3. Add base INITIAL_USERS as fallback
   INITIAL_USERS.forEach((u) => {
-    if (u && u.id && !seenIds.has(u.id)) {
+    if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id) && !seenIds.has(u.id)) {
       seenIds.add(u.id);
       pool.push(u);
     }

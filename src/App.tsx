@@ -20,6 +20,7 @@ import {
   DEFAULT_USERS,
   DEFAULT_ROLE_PERMISSIONS,
   INITIAL_ACTIVITY_LOGS,
+  LEGACY_MOCK_USER_IDS,
   hasPermission,
   canUserViewTask,
 } from './utils/userPermissions';
@@ -67,6 +68,12 @@ import { PhoneNotificationModal } from './components/PhoneNotificationModal';
 import { SystemMaintenanceScreen } from './components/SystemMaintenanceScreen';
 import { ReleaseVersionModal } from './components/ReleaseVersionModal';
 import { StorageOptimizerModal } from './components/StorageOptimizerModal';
+import { PortalLinksModal } from './components/PortalLinksModal';
+import {
+  PortalMode,
+  getPortalModeFromUrl,
+  setPortalModeInUrl,
+} from './utils/portalLinks';
 import {
   initUserPartition,
   removeUserPartition,
@@ -108,10 +115,7 @@ export default function App() {
     return getInitialStreak();
   });
 
-  // Legacy mock IDs to prune so system starts fresh with only Super Admin and newly enrolled users
-  const LEGACY_MOCK_USER_IDS = new Set(['user-mgr-1', 'user-mem-1', 'user-mem-2', 'user-view-1']);
-
-  // User Management & RBAC States
+  // User Management & RBAC States (Strictly filtered to real database users)
   const [users, setUsers] = useState<UserAccount[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.USERS);
@@ -252,6 +256,17 @@ export default function App() {
   });
   const [isReleaseVersionModalOpen, setIsReleaseVersionModalOpen] = useState<boolean>(false);
   const [isStorageOptimizerOpen, setIsStorageOptimizerOpen] = useState<boolean>(false);
+  const [isPortalLinksModalOpen, setIsPortalLinksModalOpen] = useState<boolean>(false);
+  const [portalMode, setPortalMode] = useState<PortalMode>(() => getPortalModeFromUrl());
+
+  // Listen for browser navigation / portal mode changes
+  useEffect(() => {
+    const handlePopState = () => {
+      setPortalMode(getPortalModeFromUrl());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Persist systemConfig
   useEffect(() => {
@@ -450,24 +465,34 @@ export default function App() {
     setIsAuthModalOpen(true);
   };
 
-  // Merge helper for user lists across devices and cloud
+  // Merge helper for user lists across devices and cloud (Prioritizes real database users)
   const mergeUserLists = (remoteUsers: UserAccount[], localUsers: UserAccount[]): UserAccount[] => {
+    const validRemote = (Array.isArray(remoteUsers) ? remoteUsers : []).filter(
+      (u) => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)
+    );
+
+    const validLocal = (Array.isArray(localUsers) ? localUsers : []).filter(
+      (u) => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)
+    );
+
     const map = new Map<string, UserAccount>();
 
-    // 1. Initial/Default seed users
-    DEFAULT_USERS.forEach((u) => {
-      if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)) map.set(u.id, u);
+    // 1. Remote Cloud users (Highest authority from real database)
+    validRemote.forEach((u) => map.set(u.id, u));
+
+    // 2. Local newly enrolled users not yet present in remote
+    validLocal.forEach((u) => {
+      if (!map.has(u.id)) {
+        map.set(u.id, u);
+      }
     });
 
-    // 2. Local users (skip legacy mock demo IDs)
-    (Array.isArray(localUsers) ? localUsers : []).forEach((u) => {
-      if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)) map.set(u.id, u);
-    });
-
-    // 3. Remote Cloud users (highest authority, skip legacy mock demo IDs)
-    (Array.isArray(remoteUsers) ? remoteUsers : []).forEach((u) => {
-      if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)) map.set(u.id, u);
-    });
+    // 3. Fallback to DEFAULT_USERS (Super Admin) if no users exist
+    if (map.size === 0) {
+      DEFAULT_USERS.forEach((u) => {
+        if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)) map.set(u.id, u);
+      });
+    }
 
     return Array.from(map.values());
   };
@@ -1245,6 +1270,11 @@ export default function App() {
           users={users}
           currentUser={currentUser}
           systemConfig={systemConfig}
+          portalMode={portalMode}
+          onSwitchPortalMode={(mode) => {
+            setPortalMode(mode);
+            setPortalModeInUrl(mode);
+          }}
         />
       </div>
     );
@@ -1277,6 +1307,7 @@ export default function App() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
         onOpenStorageOptimizer={() => setIsStorageOptimizerOpen(true)}
+        onOpenPortalLinks={canManageUsers ? () => setIsPortalLinksModalOpen(true) : undefined}
       />
 
       {/* Main App Canvas */}
@@ -1354,6 +1385,7 @@ export default function App() {
           onToggleMaintenance={currentUser.role === 'admin' ? handleToggleMaintenance : undefined}
           onOpenReleaseVersion={currentUser.role === 'admin' ? () => setIsReleaseVersionModalOpen(true) : undefined}
           onOpenStorageOptimizer={() => setIsStorageOptimizerOpen(true)}
+          onOpenPortalLinks={canManageUsers ? () => setIsPortalLinksModalOpen(true) : undefined}
         />
 
         {/* Scrollable Dashboard Workspace */}
@@ -1510,6 +1542,7 @@ export default function App() {
         onSwitchUser={handleSwitchUser}
         onManualSync={handleManualSync}
         isSyncing={supabaseSyncStatus === 'syncing'}
+        onOpenPortalLinks={() => setIsPortalLinksModalOpen(true)}
       />
 
       {/* User Profile Modal (Avatar Customizer & Bio) */}
@@ -1534,6 +1567,11 @@ export default function App() {
         users={users}
         currentUser={currentUser}
         systemConfig={systemConfig}
+        portalMode={portalMode}
+        onSwitchPortalMode={(mode) => {
+          setPortalMode(mode);
+          setPortalModeInUrl(mode);
+        }}
       />
 
       {/* Mobile App Bottom Navigation Bar (Phone Form Factor) */}
@@ -1577,6 +1615,13 @@ export default function App() {
         tasks={tasks}
         users={users}
         onTasksOptimized={(optimized) => setTasks(optimized)}
+      />
+
+      {/* Super Admin Access Links & Whitelist Modal */}
+      <PortalLinksModal
+        isOpen={isPortalLinksModalOpen}
+        onClose={() => setIsPortalLinksModalOpen(false)}
+        users={users}
       />
     </div>
   );

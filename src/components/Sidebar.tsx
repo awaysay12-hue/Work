@@ -22,6 +22,7 @@ import {
   FileText,
   Smartphone,
   Zap,
+  Link2,
 } from 'lucide-react';
 import { ViewFilterPeriod, DailyStreak, Task, UserAccount } from '../types';
 import { toKhmerNumber } from '../utils/translations';
@@ -53,6 +54,7 @@ interface SidebarProps {
   onOpenAuthModal?: () => void;
   onLogout?: () => void;
   onOpenStorageOptimizer?: () => void;
+  onOpenPortalLinks?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -79,6 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAuthModal,
   onLogout,
   onOpenStorageOptimizer,
+  onOpenPortalLinks,
 }) => {
   const todayStr = getTodayDateString();
   const totalTasks = tasks.length;
@@ -277,6 +280,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {toKhmerNumber(usersCount)} នាក់
               </span>
             </div>
+
+            {onOpenPortalLinks && (
+              <div
+                onClick={() => {
+                  onOpenPortalLinks();
+                  if (onCloseMobile) onCloseMobile();
+                }}
+                className="flex items-center justify-between p-2.5 rounded-lg text-indigo-200 bg-indigo-950/60 hover:bg-indigo-900 hover:text-white transition-colors cursor-pointer text-xs font-medium mt-1 border border-indigo-800/40"
+              >
+                <div className="flex items-center gap-3">
+                  <Link2 className="w-4 h-4 text-cyan-400" />
+                  <span>Link ច្រកចូល & Whitelist</span>
+                </div>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
+                  Portal
+                </span>
+              </div>
+            )}
           </div>
         )}
 

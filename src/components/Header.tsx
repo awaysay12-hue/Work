@@ -25,6 +25,7 @@ import {
   Rocket,
   Zap,
   HardDrive,
+  Link2,
 } from 'lucide-react';
 import { formatKhmerDate, formatKhmerTime, getTodayDateString } from '../utils/khmerDates';
 import { toKhmerNumber } from '../utils/translations';
@@ -59,6 +60,7 @@ interface HeaderProps {
   onToggleMaintenance?: () => void;
   onOpenReleaseVersion?: () => void;
   onOpenStorageOptimizer?: () => void;
+  onOpenPortalLinks?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -86,6 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMaintenance,
   onOpenReleaseVersion,
   onOpenStorageOptimizer,
+  onOpenPortalLinks,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [notificationPermission, setNotificationPermission] = useState<string>(
@@ -282,6 +285,19 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Super Admin Portal Links & User Whitelist Access button */}
+        {canManageUsers && onOpenPortalLinks && (
+          <button
+            onClick={onOpenPortalLinks}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs cursor-pointer bg-gradient-to-r from-indigo-50 to-indigo-100/80 border-indigo-200/90 text-indigo-800 hover:from-indigo-100 hover:to-indigo-200 active:scale-95"
+            title="បង្កើត & ចែករំលែក Link ច្រកចូលសម្រាប់សមាជិក (Whitelist Access)"
+          >
+            <Link2 className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="hidden lg:inline">Link ច្រកចូល & Whitelist</span>
+            <span className="lg:hidden">Link សមាជិក</span>
+          </button>
+        )}
+
         {/* User Profile Pill & Dropdown Switcher */}
         <div className="relative border-l pl-1.5 sm:pl-3 border-slate-200" ref={profileMenuRef}>
           <button
@@ -393,6 +409,25 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <Shield className="w-4 h-4 text-indigo-600" />
                     <span>គ្រប់គ្រងសិទ្ធិ & សមាជិក (RBAC Pro)</span>
+                  </button>
+                )}
+
+                {/* Portal Links & Whitelist in Menu */}
+                {canManageUsers && onOpenPortalLinks && (
+                  <button
+                    onClick={() => {
+                      onOpenPortalLinks();
+                      setIsProfileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-900 bg-gradient-to-r from-indigo-50 to-cyan-50 hover:from-indigo-100 hover:to-cyan-100 border border-indigo-200/80 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Link2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <div className="text-left">
+                      <p className="font-bold leading-tight">Link ច្រកចូល & Whitelist User</p>
+                      <p className="text-[10px] text-indigo-600/90 font-medium leading-tight mt-0.5">
+                        បង្កើត Link & កំណត់អ្នកមានសិទ្ធិចូល
+                      </p>
+                    </div>
                   </button>
                 )}
 
