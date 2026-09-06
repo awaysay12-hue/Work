@@ -310,18 +310,7 @@ export const INITIAL_USERS: UserAccount[] = [
   },
 ];
 
-export const INITIAL_ACTIVITY_LOGS: ActivityLog[] = [
-  {
-    id: 'log-1',
-    userId: 'user-admin-1',
-    userName: 'ពន្លឺ (Super Admin)',
-    userRole: 'admin',
-    action: 'sync_db',
-    targetTitle: 'Supabase Cloud Database',
-    details: 'បានរៀបចំប្រព័ន្ធ Database និងគណនីអ្នកប្រើប្រាស់រួចរាល់',
-    timestamp: new Date().toISOString(),
-  },
-];
+export const INITIAL_ACTIVITY_LOGS: ActivityLog[] = [];
 
 export const DEFAULT_USERS = INITIAL_USERS;
 export const DEFAULT_ACTIVITY_LOGS = INITIAL_ACTIVITY_LOGS;

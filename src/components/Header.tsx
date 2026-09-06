@@ -256,8 +256,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* Turbo Storage Optimizer Button */}
-        {onOpenStorageOptimizer && (
+        {/* Turbo Storage Optimizer Button - Super Admin Only */}
+        {currentUser.role === 'admin' && onOpenStorageOptimizer && (
           <button
             onClick={onOpenStorageOptimizer}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100/80 active:bg-emerald-200 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
@@ -285,8 +285,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* Super Admin Portal Links & User Whitelist Access button */}
-        {canManageUsers && onOpenPortalLinks && (
+        {/* Super Admin Portal Links & User Whitelist Access button - Super Admin Only */}
+        {currentUser.role === 'admin' && onOpenPortalLinks && (
           <button
             onClick={onOpenPortalLinks}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs cursor-pointer bg-gradient-to-r from-indigo-50 to-indigo-100/80 border-indigo-200/90 text-indigo-800 hover:from-indigo-100 hover:to-indigo-200 active:scale-95"
@@ -399,7 +399,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
-                {canManageUsers && (
+                {currentUser.role === 'admin' && onOpenUserManagement && (
                   <button
                     onClick={() => {
                       onOpenUserManagement();
@@ -412,8 +412,8 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
-                {/* Portal Links & Whitelist in Menu */}
-                {canManageUsers && onOpenPortalLinks && (
+                {/* Portal Links & Whitelist in Menu - Super Admin Only */}
+                {currentUser.role === 'admin' && onOpenPortalLinks && (
                   <button
                     onClick={() => {
                       onOpenPortalLinks();
@@ -431,8 +431,8 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
-                {/* Turbo Storage Optimizer in Menu */}
-                {onOpenStorageOptimizer && (
+                {/* Turbo Storage Optimizer in Menu - Super Admin Only */}
+                {currentUser.role === 'admin' && onOpenStorageOptimizer && (
                   <button
                     onClick={() => {
                       onOpenStorageOptimizer();

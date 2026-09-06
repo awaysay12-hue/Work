@@ -69,6 +69,7 @@ import { TodaySummaryModal } from './components/TodaySummaryModal';
 import { PhoneNotificationModal } from './components/PhoneNotificationModal';
 import { SystemMaintenanceScreen } from './components/SystemMaintenanceScreen';
 import { ReleaseVersionModal } from './components/ReleaseVersionModal';
+import { UserVersionAlertModal } from './components/UserVersionAlertModal';
 import { StorageOptimizerModal } from './components/StorageOptimizerModal';
 import { PortalLinksModal } from './components/PortalLinksModal';
 import {
@@ -94,23 +95,36 @@ const STORAGE_KEYS = {
   AUTH_AUTHENTICATED: 'kh_daily_auth_authenticated_v1',
 };
 
+const LEGACY_MOCK_TASK_IDS = new Set(['task-1', 'task-2', 'task-3', 'task-4', 'task-5']);
+
 export default function App() {
-  // Load tasks from localStorage or initial
+  // Load tasks from localStorage or initial (strictly clean user data)
   const [tasks, setTasks] = useState<Task[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: Task[] = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const cleanTasks = parsed.filter((t) => t && t.id && !LEGACY_MOCK_TASK_IDS.has(t.id));
+          return cleanTasks;
+        }
+      }
     } catch {
       // Ignore
     }
     return getInitialTasks();
   });
 
-  // Load streak metrics
+  // Load streak metrics (strictly clean user data)
   const [streak, setStreak] = useState<DailyStreak>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.STREAK);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: DailyStreak = JSON.parse(saved);
+        if (parsed && !(parsed.currentStreak === 5 && parsed.totalCompletedAllTime === 42)) {
+          return parsed;
+        }
+      }
     } catch {
       // Ignore
     }
@@ -170,6 +184,7 @@ export default function App() {
           const seen = new Set<string>();
           const uniqueLogs: ActivityLog[] = [];
           parsed.forEach((log, index) => {
+            if (log.id === 'log-1') return;
             const safeId =
               log.id && !seen.has(log.id)
                 ? log.id
@@ -260,6 +275,60 @@ export default function App() {
   const [isStorageOptimizerOpen, setIsStorageOptimizerOpen] = useState<boolean>(false);
   const [isPortalLinksModalOpen, setIsPortalLinksModalOpen] = useState<boolean>(false);
   const [portalMode, setPortalMode] = useState<PortalMode>(() => getPortalModeFromUrl());
+
+  // Track acknowledged version to alert regular users immediately on new releases
+  const [acknowledgedVersion, setAcknowledgedVersion] = useState<string>(() => {
+    try {
+      return localStorage.getItem('kh_acknowledged_version_v1') || 'v2.5.0';
+    } catch {
+      return 'v2.5.0';
+    }
+  });
+  const [isUserVersionAlertOpen, setIsUserVersionAlertOpen] = useState<boolean>(false);
+
+  // Cross-tab and window instant sync for maintenance mode and versioning
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'kh_daily_system_config_v1' && e.newValue) {
+        try {
+          const newCfg = JSON.parse(e.newValue);
+          setSystemConfig(newCfg);
+        } catch {}
+      }
+      if (e.key === STORAGE_KEYS.USERS && e.newValue) {
+        try {
+          setUsers(JSON.parse(e.newValue));
+        } catch {}
+      }
+      if (e.key === STORAGE_KEYS.TASKS && e.newValue) {
+        try {
+          setTasks(JSON.parse(e.newValue));
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // Show User Version Alert Modal whenever Super Admin releases a newer version
+  useEffect(() => {
+    if (
+      systemConfig.currentVersion &&
+      systemConfig.currentVersion !== acknowledgedVersion &&
+      !systemConfig.isMaintenance
+    ) {
+      setIsUserVersionAlertOpen(true);
+    }
+  }, [systemConfig.currentVersion, systemConfig.isMaintenance, acknowledgedVersion]);
+
+  const handleAcceptNewVersion = () => {
+    const v = systemConfig.currentVersion || 'v2.6.0';
+    setAcknowledgedVersion(v);
+    try {
+      localStorage.setItem('kh_acknowledged_version_v1', v);
+    } catch {}
+    handleManualSync();
+  };
 
   // Listen for browser navigation / portal mode changes
   useEffect(() => {
@@ -1359,20 +1428,20 @@ export default function App() {
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onOpenSupabaseModal={canSyncCloud ? () => setIsSupabaseModalOpen(true) : undefined}
+        onOpenSupabaseModal={currentUser.role === 'admin' ? () => setIsSupabaseModalOpen(true) : undefined}
         supabaseSyncStatus={supabaseSyncStatus}
         currentUser={currentUser}
         usersCount={users.length}
-        onOpenUserManagement={canManageUsers ? () => setIsUserManagementOpen(true) : undefined}
+        onOpenUserManagement={currentUser.role === 'admin' ? () => setIsUserManagementOpen(true) : undefined}
         onOpenTodaySummary={() => setIsTodaySummaryOpen(true)}
         onOpenPhoneNotificationModal={() => setIsPhoneNotificationModalOpen(true)}
         canCreateTask={canCreateTask}
-        canManageUsers={canManageUsers}
-        canSyncCloud={canSyncCloud}
+        canManageUsers={currentUser.role === 'admin'}
+        canSyncCloud={currentUser.role === 'admin'}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
-        onOpenStorageOptimizer={() => setIsStorageOptimizerOpen(true)}
-        onOpenPortalLinks={canManageUsers ? () => setIsPortalLinksModalOpen(true) : undefined}
+        onOpenStorageOptimizer={currentUser.role === 'admin' ? () => setIsStorageOptimizerOpen(true) : undefined}
+        onOpenPortalLinks={currentUser.role === 'admin' ? () => setIsPortalLinksModalOpen(true) : undefined}
       />
 
       {/* Main App Canvas */}
@@ -1434,23 +1503,23 @@ export default function App() {
           onOpenNewTask={handleOpenNewTask}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(true)}
           tasks={visibleTasks}
-          onOpenSupabaseModal={canSyncCloud ? () => setIsSupabaseModalOpen(true) : undefined}
+          onOpenSupabaseModal={currentUser.role === 'admin' ? () => setIsSupabaseModalOpen(true) : undefined}
           supabaseSyncStatus={supabaseSyncStatus}
           currentUser={currentUser}
           users={users}
           onSwitchUser={handleSwitchUser}
-          onOpenUserManagement={canManageUsers ? () => setIsUserManagementOpen(true) : undefined}
+          onOpenUserManagement={currentUser.role === 'admin' ? () => setIsUserManagementOpen(true) : undefined}
           onOpenProfileModal={() => setIsProfileModalOpen(true)}
           onOpenTodaySummary={() => setIsTodaySummaryOpen(true)}
           onOpenPhoneNotificationModal={() => setIsPhoneNotificationModalOpen(true)}
-          canManageUsers={canManageUsers}
+          canManageUsers={currentUser.role === 'admin'}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
           systemConfig={systemConfig}
           onToggleMaintenance={currentUser.role === 'admin' ? handleToggleMaintenance : undefined}
           onOpenReleaseVersion={currentUser.role === 'admin' ? () => setIsReleaseVersionModalOpen(true) : undefined}
-          onOpenStorageOptimizer={() => setIsStorageOptimizerOpen(true)}
-          onOpenPortalLinks={canManageUsers ? () => setIsPortalLinksModalOpen(true) : undefined}
+          onOpenStorageOptimizer={currentUser.role === 'admin' ? () => setIsStorageOptimizerOpen(true) : undefined}
+          onOpenPortalLinks={currentUser.role === 'admin' ? () => setIsPortalLinksModalOpen(true) : undefined}
         />
 
         {/* Scrollable Dashboard Workspace */}
@@ -1671,6 +1740,14 @@ export default function App() {
         onClose={() => setIsReleaseVersionModalOpen(false)}
         systemConfig={systemConfig}
         onReleaseVersion={handleReleaseVersion}
+      />
+
+      {/* Instant Notification to Users when a New Version is Released */}
+      <UserVersionAlertModal
+        isOpen={isUserVersionAlertOpen}
+        onClose={() => setIsUserVersionAlertOpen(false)}
+        systemConfig={systemConfig}
+        onAcceptUpdate={handleAcceptNewVersion}
       />
 
       {/* Turbo Data & Storage Optimizer Modal */}

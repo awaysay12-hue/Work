@@ -259,8 +259,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* User & Role Management Menu Item - Shown to Admins or with lock for others */}
-        {canManageUsers && onOpenUserManagement && (
+        {/* User & Role Management Menu Item - Super Admin Only */}
+        {currentUser?.role === 'admin' && onOpenUserManagement && (
           <div className="pt-2">
             <div className="text-[10px] font-bold text-indigo-300/60 uppercase px-3 py-1">
               ការគ្រប់គ្រង & សិទ្ធិ
@@ -379,8 +379,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </p>
         </div>
 
-        {/* Supabase Database Cloud Status Card - Strictly for Admins/Managers */}
-        {canSyncCloud && onOpenSupabaseModal && (
+        {/* Supabase Database Cloud Status Card - Strictly for Super Admin */}
+        {currentUser?.role === 'admin' && onOpenSupabaseModal && (
           <button
             onClick={onOpenSupabaseModal}
             className="w-full text-left p-2.5 rounded-xl bg-indigo-900/60 hover:bg-indigo-900 border border-indigo-700/50 hover:border-emerald-500/50 transition-all duration-200 flex items-center justify-between group cursor-pointer animate-fade-in"
@@ -409,8 +409,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
 
-        {/* Turbo Storage Optimizer Button in Sidebar */}
-        {onOpenStorageOptimizer && (
+        {/* Turbo Storage Optimizer Button in Sidebar - Super Admin Only */}
+        {currentUser?.role === 'admin' && onOpenStorageOptimizer && (
           <button
             onClick={onOpenStorageOptimizer}
             className="w-full text-left p-2.5 rounded-xl bg-indigo-900/40 hover:bg-indigo-900/80 border border-emerald-500/30 hover:border-emerald-500/60 transition-all duration-200 flex items-center justify-between group cursor-pointer"

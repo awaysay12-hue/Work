@@ -253,8 +253,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       const { users: remoteUsers, error } = await fetchUsersFromSupabase();
-      if (error) {
-        setErrorMessage(`មិនអាចទាញទិន្នន័យពី Cloud: ${error.message || 'សូមពិនិត្យអ៊ីនធឺណិត'}`);
+      if (error || !remoteUsers) {
+        setErrorMessage('⚠️ មិនទាន់អាចទាញទិន្នន័យពី Cloud (សូមពិនិត្យមើល Anon Key ក្នុង Cloud Manager)');
       } else if (remoteUsers) {
         setCurrentUsersList((prev) => {
           const map = new Map<string, UserAccount>();
@@ -276,7 +276,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setSuccessMessage(`បានធ្វើសមកាលកម្ម ${remoteUsers.length} គណនីពី Supabase Cloud Database ជោគជ័យ!`);
       }
     } catch {
-      setErrorMessage('មានបញ្ហាក្នុងការភ្ជាប់ទៅកាន់ Supabase Cloud');
+      setErrorMessage('⚠️ មិនទាន់អាចទាញទិន្នន័យពី Cloud (សូមពិនិត្យមើល Anon Key ក្នុង Cloud Manager)');
     } finally {
       setIsSyncingCloud(false);
     }
@@ -291,88 +291,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       // 1. Strict Real Supabase Database Verification
-      if (supabase) {
-        const dbResult = await verifyUserWithSupabaseDatabase(emailOrName, password);
+      const dbResult = await verifyUserWithSupabaseDatabase(emailOrName, password);
 
-        if (dbResult.success && dbResult.user) {
-          const verifiedUser = dbResult.user;
+      if (dbResult.success && dbResult.user) {
+        const verifiedUser = dbResult.user;
 
-          // Whitelist Enforcement for Member / User Portal
-          if (internalPortalMode === 'user') {
-            const authCheck = checkUserAuthorization(emailOrName, [verifiedUser]);
-            if (!authCheck.isAuthorized) {
-              setIsLoading(false);
-              soundFx.playAlert();
-              setErrorMessage(
-                authCheck.reason ||
-                  '❌ គណនីនេះមិនទាន់ត្រូវបាន Super Admin អនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin!'
-              );
-              return;
-            }
-          }
-
-          // If in admin portal, ensure user has admin role
-          if (internalPortalMode === 'admin' && verifiedUser.role !== 'admin') {
+        // Whitelist Enforcement for Member / User Portal
+        if (internalPortalMode === 'user') {
+          const authCheck = checkUserAuthorization(emailOrName, [verifiedUser]);
+          if (!authCheck.isAuthorized) {
             setIsLoading(false);
             soundFx.playAlert();
             setErrorMessage(
-              '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
+              authCheck.reason ||
+                '❌ គណនីនេះមិនទាន់ត្រូវបាន Super Admin អនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin!'
             );
             return;
           }
-
-          // Super Admin maintenance check: if system is under maintenance, block non-admin users
-          if (systemConfig?.isMaintenance && verifiedUser.role !== 'admin') {
-            setIsLoading(false);
-            soundFx.playAlert();
-            setErrorMessage(
-              'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
-            );
-            return;
-          }
-
-          setIsLoading(false);
-          soundFx.playCelebration();
-          setSuccessMessage(`ស្វាគមន៍! សួស្តី ${verifiedUser.khmerName || verifiedUser.name} (ផ្ទៀងផ្ទាត់ជាមួយ Database ជោគជ័យ ✅)`);
-
-          // Persist session if rememberMe is enabled
-          if (rememberMe) {
-            try {
-              localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(verifiedUser));
-              localStorage.setItem('taskmate_current_user_id', verifiedUser.id);
-              localStorage.setItem('kh_daily_current_user_id_v1', verifiedUser.id);
-              localStorage.setItem('taskmate_auth_authenticated', 'true');
-              localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
-              setSavedDeviceAccount(verifiedUser);
-            } catch {
-              // Ignore
-            }
-          }
-
-          setTimeout(() => {
-            onLoginSuccess(verifiedUser);
-          }, 300);
-          return;
-        } else {
-          // Reject with clear database error message
-          setIsLoading(false);
-          soundFx.playAlert();
-          setErrorMessage(
-            dbResult.message ||
-              '❌ គណនីនេះមិនមានក្នុង Database (Supabase) ទេ។ សូមទាក់ទង Super Admin ឬចុះឈ្មោះគណនីថ្មី!'
-          );
-          return;
         }
-      }
 
-      // Fallback only if Supabase client is offline/uninitialized
-      const candidatePool = currentUsersList.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
-      const result = verifyUserLogin(emailOrName, password, candidatePool);
-
-      setIsLoading(false);
-
-      if (result.success && result.user) {
-        if (internalPortalMode === 'admin' && result.user.role !== 'admin') {
+        // If in admin portal, ensure user has admin role
+        if (internalPortalMode === 'admin' && verifiedUser.role !== 'admin') {
+          setIsLoading(false);
           soundFx.playAlert();
           setErrorMessage(
             '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
@@ -380,7 +320,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           return;
         }
 
-        if (systemConfig?.isMaintenance && result.user.role !== 'admin') {
+        // Super Admin maintenance check: if system is under maintenance, block non-admin users
+        if (systemConfig?.isMaintenance && verifiedUser.role !== 'admin') {
+          setIsLoading(false);
           soundFx.playAlert();
           setErrorMessage(
             'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
@@ -388,31 +330,78 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           return;
         }
 
+        setIsLoading(false);
         soundFx.playCelebration();
-        setSuccessMessage(`ស្វាគមន៍! សួស្តី ${result.user.khmerName || result.user.name}`);
+        setSuccessMessage(`ស្វាគមន៍! សួស្តី ${verifiedUser.khmerName || verifiedUser.name} (ផ្ទៀងផ្ទាត់ជោគជ័យ ✅)`);
 
+        // Persist session if rememberMe is enabled
         if (rememberMe) {
           try {
-            localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(result.user));
-            localStorage.setItem('taskmate_current_user_id', result.user.id);
-            localStorage.setItem('kh_daily_current_user_id_v1', result.user.id);
+            localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(verifiedUser));
+            localStorage.setItem('taskmate_current_user_id', verifiedUser.id);
+            localStorage.setItem('kh_daily_current_user_id_v1', verifiedUser.id);
             localStorage.setItem('taskmate_auth_authenticated', 'true');
             localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
-            setSavedDeviceAccount(result.user);
+            setSavedDeviceAccount(verifiedUser);
           } catch {
             // Ignore
           }
         }
 
         setTimeout(() => {
-          onLoginSuccess(result.user!);
+          onLoginSuccess(verifiedUser);
         }, 300);
+        return;
       } else {
-        soundFx.playAlert();
-        setErrorMessage(
-          result.message ||
-            'ការចូលប្រើប្រាស់មិនជោគជ័យ! សូមពិនិត្យអ៊ីមែល ឬពាក្យសម្ងាត់'
-        );
+        // Fallback local candidate check
+        const candidatePool = currentUsersList.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
+        const result = verifyUserLogin(emailOrName, password, candidatePool);
+
+        setIsLoading(false);
+
+        if (result.success && result.user) {
+          if (internalPortalMode === 'admin' && result.user.role !== 'admin') {
+            soundFx.playAlert();
+            setErrorMessage(
+              '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
+            );
+            return;
+          }
+
+          if (systemConfig?.isMaintenance && result.user.role !== 'admin') {
+            soundFx.playAlert();
+            setErrorMessage(
+              'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
+            );
+            return;
+          }
+
+          soundFx.playCelebration();
+          setSuccessMessage(`ស្វាគមន៍! សួស្តី ${result.user.khmerName || result.user.name} (ផ្ទៀងផ្ទាត់ជោគជ័យ ✅)`);
+
+          if (rememberMe) {
+            try {
+              localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(result.user));
+              localStorage.setItem('taskmate_current_user_id', result.user.id);
+              localStorage.setItem('kh_daily_current_user_id_v1', result.user.id);
+              localStorage.setItem('taskmate_auth_authenticated', 'true');
+              localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+              setSavedDeviceAccount(result.user);
+            } catch {
+              // Ignore
+            }
+          }
+
+          setTimeout(() => {
+            onLoginSuccess(result.user!);
+          }, 300);
+        } else {
+          soundFx.playAlert();
+          setErrorMessage(
+            dbResult.message || result.message ||
+              'ការចូលប្រើប្រាស់មិនជោគជ័យ! សូមពិនិត្យអ៊ីមែល ឬពាក្យសម្ងាត់'
+          );
+        }
       }
     } catch {
       setIsLoading(false);

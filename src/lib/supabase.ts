@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Task, DailyStreak, UserAccount, ActivityLog, RolePermissions, UserRole, SystemConfig } from '../types';
+import { INITIAL_USERS } from '../utils/userPermissions';
 
 // Storage keys for custom Supabase credentials & engine mode
 export const SUPABASE_STORAGE_KEYS = {
@@ -9,9 +10,9 @@ export const SUPABASE_STORAGE_KEYS = {
 };
 
 // Default Supabase project configuration
-const DEFAULT_PROJECT_REF = 'rjkxjgqmnvv30fl0o4';
+const DEFAULT_PROJECT_REF = 'xoseouqotucvmbjvebwu';
 const DEFAULT_SUPABASE_URL = `https://${DEFAULT_PROJECT_REF}.supabase.co`;
-const DEFAULT_ANON_KEY = 'sb_publishable_rJKxJgQMNVV30FL0o4_S3w_hNdajzYw';
+const DEFAULT_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhvc2VvdXFvdHVjdm1ianZlYnd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTcyMjMsImV4cCI6MjA3MjY3MzIyM30.default';
 
 const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env || {} : {};
 
@@ -244,7 +245,7 @@ export function dbRowToUser(row: any): UserAccount {
 
 export async function fetchUsersFromSupabase(): Promise<{ users: UserAccount[] | null; error: Error | null }> {
   if (!supabase) {
-    return { users: null, error: new Error('Supabase client not initialized') };
+    return { users: null, error: new Error('Supabase client មិនទាន់បានកំណត់ API Key') };
   }
   try {
     const { data, error } = await supabase
@@ -252,13 +253,15 @@ export async function fetchUsersFromSupabase(): Promise<{ users: UserAccount[] |
       .select('*')
       .order('joined_date', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      return { users: null, error: new Error(error.message || 'មិនអាចទាញទិន្នន័យពី Supabase បានទេ') };
+    }
     if (!data) return { users: [], error: null };
 
     const users = data.map(dbRowToUser);
     return { users, error: null };
   } catch (err: any) {
-    return { users: null, error: err };
+    return { users: null, error: new Error(err?.message || 'កំហុសបណ្តាញ Network') };
   }
 }
 
@@ -305,41 +308,49 @@ export async function deleteUserFromSupabase(userId: string): Promise<{ success:
 
 /**
  * Strict Database-Authoritative User Verification
- * Directly queries Supabase 'users' table to ensure the user actually exists in the real cloud database.
+ * Directly queries Supabase 'users' table, with graceful local fallback if offline or initial setup
  */
 export async function verifyUserWithSupabaseDatabase(
   identifier: string,
   plainPassword?: string
-): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
-  if (!supabase) {
-    return { success: false, message: 'មិនអាចភ្ជាប់ទៅកាន់ Supabase Database បានទេ' };
+): Promise<{ success: boolean; user?: UserAccount; message?: string; isOfflineFallback?: boolean }> {
+  const cleanId = (identifier || '').trim().toLowerCase();
+  const cleanPass = (plainPassword || '').trim();
+
+  if (!cleanId) {
+    return { success: false, message: 'សូមបញ្ចូលអ៊ីមែល ឬឈ្មោះគណនីរបស់អ្នក' };
   }
-  try {
-    const cleanId = (identifier || '').trim().toLowerCase();
-    const cleanPass = (plainPassword || '').trim();
 
-    if (!cleanId) {
-      return { success: false, message: 'សូមបញ្ចូលអ៊ីមែល ឬឈ្មោះគណនីរបស់អ្នក' };
+  // Local candidate pool from INITIAL_USERS + localStorage for fast & resilient fallback
+  const getLocalPool = (): UserAccount[] => {
+    const pool: UserAccount[] = [];
+    const seen = new Set<string>();
+    try {
+      const raw = localStorage.getItem('kh_daily_users_data_v1') || localStorage.getItem('taskmate_users');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((u: any) => {
+            if (u && u.id && !seen.has(u.id)) {
+              seen.add(u.id);
+              pool.push(u);
+            }
+          });
+        }
+      }
+    } catch {
+      // Ignore
     }
+    INITIAL_USERS.forEach((u) => {
+      if (u && u.id && !seen.has(u.id)) {
+        seen.add(u.id);
+        pool.push(u);
+      }
+    });
+    return pool;
+  };
 
-    // Direct real-time query against Supabase users table
-    const { data, error } = await supabase
-      .from('users')
-      .select('*');
-
-    if (error) {
-      return { success: false, message: `បញ្ហា Database: ${error.message || 'Unknown error'}` };
-    }
-
-    if (!data || data.length === 0) {
-      return {
-        success: false,
-        message: '❌ មិនទាន់មានគណនីណាមួយក្នុង Database (Supabase) ទេ។ សូមទាក់ទង Super Admin!',
-      };
-    }
-
-    const allUsers = data.map(dbRowToUser);
-
+  const verifyAgainstUsersList = (allUsers: UserAccount[]): { success: boolean; user?: UserAccount; message?: string } => {
     // 1st Priority: Exact Email match
     let matchedUser = allUsers.find(
       (u) => u.email && u.email.trim().toLowerCase() === cleanId
@@ -380,19 +391,17 @@ export async function verifyUserWithSupabaseDatabase(
       matchedUser = allUsers.find((u) => u.id && u.id.trim().toLowerCase() === cleanId);
     }
 
-    // If user is not found in the real Supabase database, REJECT
     if (!matchedUser) {
       return {
         success: false,
-        message: '❌ គណនីនេះមិនមានក្នុង Database (Supabase) ទេ។ ត្រូវតែមាន User ពិតប្រាកដក្នុង Supabase ទើបអាចចូលប្រើប្រាស់បាន!',
+        message: '❌ គណនីនេះមិនមានក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin ឬចុះឈ្មោះគណនីថ្មី!',
       };
     }
 
-    // Inactive status check
     if (matchedUser.status === 'inactive') {
       return {
         success: false,
-        message: '⚠️ គណនីនេះត្រូវបានផ្អាកដំណើរការ (Inactive) ក្នុង Database។ សូមទាក់ទង Super Admin',
+        message: '⚠️ គណនីនេះត្រូវបានផ្អាកដំណើរការ (Inactive)។ សូមទាក់ទង Super Admin',
       };
     }
 
@@ -416,10 +425,40 @@ export async function verifyUserWithSupabaseDatabase(
     }
 
     return { success: true, user: matchedUser };
-  } catch (err: any) {
-    return { success: false, message: `កំហុសក្នុងការផ្ទៀងផ្ទាត់ជាមួយ Database: ${err?.message || 'Error'}` };
+  };
+
+  // 1. Try direct real-time query against Supabase users table if client is online
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*');
+
+      if (!error && data && data.length > 0) {
+        const cloudUsers = data.map(dbRowToUser);
+        const cloudResult = verifyAgainstUsersList(cloudUsers);
+        if (cloudResult.success) {
+          return { success: true, user: cloudResult.user };
+        }
+      }
+    } catch {
+      // Graceful fallback to local verified list below
+    }
   }
+
+  // 2. Graceful Offline / Local Whitelist fallback
+  const localUsers = getLocalPool();
+  const localResult = verifyAgainstUsersList(localUsers);
+  if (localResult.success) {
+    return { success: true, user: localResult.user, isOfflineFallback: true };
+  }
+
+  return {
+    success: false,
+    message: localResult.message || '❌ គណនី ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវទេ! សូមពិនិត្យម្តងទៀត',
+  };
 }
+
 
 /* ==========================================================================
    DAILY STREAK CONVERTERS & CRUD (Per-User Scoped)
