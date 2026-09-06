@@ -1,4 +1,5 @@
 import { UserAccount } from '../types';
+import { INITIAL_USERS } from './userPermissions';
 
 export type PortalMode = 'admin' | 'user' | 'default';
 
@@ -188,6 +189,14 @@ export function checkUserAuthorization(
     // Ignore
   }
 
+  // Base authorized accounts
+  INITIAL_USERS.forEach((u) => {
+    if (u && u.id && !seenIds.has(u.id)) {
+      seenIds.add(u.id);
+      pool.push(u);
+    }
+  });
+
   // Exact Match by email
   let found = pool.find((u) => u && u.email && u.email.trim().toLowerCase() === cleanId);
 
@@ -218,12 +227,22 @@ export function checkUserAuthorization(
     );
   }
 
+  // Match by ID
+  if (!found) {
+    found = pool.find((u) => u && u.id && u.id.trim().toLowerCase() === cleanId);
+  }
+
   // Not in authorized pool!
   if (!found) {
     return {
       isAuthorized: false,
       reason: 'គណនីនេះមិនទាន់ត្រូវបាន Super Admin បង្កើត ឬអនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin ដើម្បីទទួលបានគណនី និង Link ចូលប្រើប្រាស់។',
     };
+  }
+
+  // Super Admin is always authorized
+  if (found.role === 'admin') {
+    return { isAuthorized: true, user: found };
   }
 
   // Account suspended

@@ -138,7 +138,21 @@ export default function App() {
       if (saved) {
         const parsed: UserAccount[] = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          const cleaned = parsed.filter((u) => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
+          const seenEmails = new Set<string>();
+          const seenIds = new Set<string>();
+          const cleaned: UserAccount[] = [];
+
+          parsed.forEach((u) => {
+            if (!u || !u.id || LEGACY_MOCK_USER_IDS.has(u.id)) return;
+            const cleanEmail = u.email ? u.email.trim().toLowerCase() : '';
+            if (seenIds.has(u.id)) return;
+            if (cleanEmail && seenEmails.has(cleanEmail)) return;
+
+            seenIds.add(u.id);
+            if (cleanEmail) seenEmails.add(cleanEmail);
+            cleaned.push(u);
+          });
+
           if (cleaned.length > 0) return cleaned;
         }
       }
@@ -520,10 +534,25 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    try {
+      if (currentUser?.id) {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, currentUser.id);
+        localStorage.setItem('taskmate_current_user_id', currentUser.id);
+      }
+    } catch {
+      // Ignore
+    }
+  }, [currentUser]);
+
   // User management handlers
   const handleSwitchUser = (user: UserAccount) => {
     soundFx.playClick();
     setCurrentUser(user);
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
+      localStorage.setItem('taskmate_current_user_id', user.id);
+    } catch {}
     if (user.role === 'member' || user.role === 'viewer') {
       setFilters((prev) => ({ ...prev, assigneeFilter: user.id }));
     }
@@ -535,12 +564,26 @@ export default function App() {
     setCurrentUser(user);
     setIsAuthenticated(true);
     setIsAuthModalOpen(false);
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
+      localStorage.setItem('taskmate_current_user_id', user.id);
+      localStorage.setItem(STORAGE_KEYS.AUTH_AUTHENTICATED, 'true');
+    } catch {}
     if (user.role === 'member' || user.role === 'viewer') {
       setFilters((prev) => ({ ...prev, assigneeFilter: user.id }));
     } else {
       setFilters((prev) => ({ ...prev, assigneeFilter: 'all' }));
     }
     logActivity('update_role', user.khmerName, `បានចូលប្រើប្រាស់គណនីជោគជ័យ (${user.role})`);
+
+    // Instant cloud re-sync on login to load all fresh tasks for this user from database
+    if (supabase) {
+      fetchTasksFromSupabase().then((res) => {
+        if (res.tasks && res.tasks.length > 0) {
+          setTasks(res.tasks);
+        }
+      }).catch(() => {});
+    }
   };
 
   const handleLogout = () => {
@@ -550,36 +593,72 @@ export default function App() {
     setIsAuthModalOpen(true);
   };
 
-  // Merge helper for user lists across devices and cloud (Prioritizes real database users)
+  // Merge helper for user lists across devices and cloud (Strict Database Authority)
   const mergeUserLists = (remoteUsers: UserAccount[], localUsers: UserAccount[]): UserAccount[] => {
     const validRemote = (Array.isArray(remoteUsers) ? remoteUsers : []).filter(
       (u) => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)
     );
 
+    // If database returned users, it is 100% authoritative
+    if (validRemote.length > 0) {
+      const emailMap = new Map<string, UserAccount>();
+      const idMap = new Map<string, UserAccount>();
+
+      // 1. Register remote database users first
+      validRemote.forEach((u) => {
+        const cleanEmail = u.email ? u.email.trim().toLowerCase() : '';
+        if (cleanEmail) {
+          emailMap.set(cleanEmail, u);
+        }
+        idMap.set(u.id, u);
+      });
+
+      // 2. Only retain local users that have not yet synced and have NO email/id collision
+      const validLocal = (Array.isArray(localUsers) ? localUsers : []).filter(
+        (u) => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)
+      );
+
+      validLocal.forEach((u) => {
+        const cleanEmail = u.email ? u.email.trim().toLowerCase() : '';
+        const emailCollision = cleanEmail && emailMap.has(cleanEmail);
+        const idCollision = idMap.has(u.id);
+
+        if (!emailCollision && !idCollision) {
+          idMap.set(u.id, u);
+          if (cleanEmail) emailMap.set(cleanEmail, u);
+        }
+      });
+
+      return Array.from(idMap.values());
+    }
+
+    // Fallback if remote database is empty
+    const idMap = new Map<string, UserAccount>();
+    const emailMap = new Map<string, UserAccount>();
+
     const validLocal = (Array.isArray(localUsers) ? localUsers : []).filter(
       (u) => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)
     );
 
-    const map = new Map<string, UserAccount>();
-
-    // 1. Remote Cloud users (Highest authority from real database)
-    validRemote.forEach((u) => map.set(u.id, u));
-
-    // 2. Local newly enrolled users not yet present in remote
     validLocal.forEach((u) => {
-      if (!map.has(u.id)) {
-        map.set(u.id, u);
+      const cleanEmail = u.email ? u.email.trim().toLowerCase() : '';
+      if (!idMap.has(u.id) && (!cleanEmail || !emailMap.has(cleanEmail))) {
+        idMap.set(u.id, u);
+        if (cleanEmail) emailMap.set(cleanEmail, u);
       }
     });
 
-    // 3. Fallback to DEFAULT_USERS (Super Admin) if no users exist
-    if (map.size === 0) {
-      DEFAULT_USERS.forEach((u) => {
-        if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)) map.set(u.id, u);
-      });
-    }
+    DEFAULT_USERS.forEach((u) => {
+      if (u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)) {
+        const cleanEmail = u.email ? u.email.trim().toLowerCase() : '';
+        if (!idMap.has(u.id) && (!cleanEmail || !emailMap.has(cleanEmail))) {
+          idMap.set(u.id, u);
+          if (cleanEmail) emailMap.set(cleanEmail, u);
+        }
+      }
+    });
 
-    return Array.from(map.values());
+    return Array.from(idMap.values());
   };
 
   const handleSaveUser = (savedUser: UserAccount) => {

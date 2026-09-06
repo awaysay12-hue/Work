@@ -54,6 +54,7 @@ import { toKhmerNumber } from '../utils/translations';
 import { formatKhmerDate, formatKhmerTime } from '../utils/khmerDates';
 import { UserAvatar } from './UserAvatar';
 import { soundFx } from '../utils/sound';
+import { validateAndNormalizeGmail } from '../utils/gmailValidator';
 
 interface UserManagementModalProps {
   isOpen: boolean;
@@ -224,7 +225,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   const handleSaveUserForm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formKhmerName.trim() || !formEmail.trim()) return;
+    if (!formKhmerName.trim()) {
+      alert('សូមបញ្ចូលឈ្មោះពេញជាភាសាខ្មែរ');
+      return;
+    }
+
+    // Strict real Gmail verification
+    const emailValidation = validateAndNormalizeGmail(formEmail, false);
+    if (!emailValidation.isValid) {
+      alert(emailValidation.errorMessage || 'សូមបញ្ចូលអាសយដ្ឋាន Gmail ពិតប្រាកដឱ្យបានត្រឹមត្រូវ (ឧ. yourname@gmail.com)');
+      return;
+    }
+    const cleanEmail = emailValidation.normalizedEmail;
 
     const initial =
       formAvatarInitial.trim() ||
@@ -239,7 +251,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
           ...existing,
           name: formName.trim() || formKhmerName.trim(),
           khmerName: formKhmerName.trim(),
-          email: formEmail.trim(),
+          email: cleanEmail,
           password: formPassword.trim() || existing.password,
           phone: formPhone.trim() || undefined,
           department: formDepartment.trim() || 'ទូទៅ',
@@ -265,7 +277,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         id: `user-${Date.now()}`,
         name: formName.trim() || formKhmerName.trim(),
         khmerName: formKhmerName.trim(),
-        email: formEmail.trim(),
+        email: cleanEmail,
         password: formPassword.trim() || '123456',
         phone: formPhone.trim() || undefined,
         department: formDepartment.trim() || 'ទូទៅ',
@@ -353,16 +365,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <Shield className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base sm:text-lg font-bold leading-tight">
                   ការគ្រប់គ្រង & កំណត់សិទ្ធិគណនី
                 </h2>
                 <span className="bg-rose-500/30 text-rose-200 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-rose-400/30">
                   Super Admin / RBAC Pro
                 </span>
+                <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-400/30 flex items-center gap-1">
+                  <Cloud className="w-2.5 h-2.5" />
+                  ផ្ទៀងផ្ទាត់ជាមួយ Database table users
+                </span>
               </div>
               <p className="text-xs text-indigo-200/80 mt-0.5">
-                គ្រប់គ្រងអ្នកប្រើប្រាស់ លុបគណនី កំណត់ការមើលឃើញ និងដាក់ Profile
+                ទិន្នន័យគណនី និងសិទ្ធិត្រូវបានផ្ទៀងផ្ទាត់ និងភ្ជាប់ផ្ទាល់ជាមួយ Cloud Database (Table: users)
               </p>
             </div>
           </div>
@@ -523,17 +539,17 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         soundFx.playClick();
                         try {
                           await onManualSync();
-                          showNotification('បានធ្វើសមកាលកម្មទិន្នន័យពី Cloud Database រួចរាល់');
+                          showNotification('បានផ្ទៀងផ្ទាត់ និងទាញយកគណនីពី Database table users ជោគជ័យ!');
                         } catch {
-                          showNotification('មិនអាចទាញទិន្នន័យពី Cloud បានទេ សូមពិនិត្យ Connection');
+                          showNotification('មិនអាចទាញទិន្នន័យពី Database បានទេ សូមពិនិត្យ Connection');
                         }
                       }}
                       disabled={isSyncing}
                       className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-200 cursor-pointer disabled:opacity-50"
-                      title="ទាញយកបញ្ជីគណនីថ្មីៗបំផុតពី Cloud Database"
+                      title="ទាញយក និងផ្ទៀងផ្ទាត់បញ្ជីគណនីផ្ទាល់ពី Supabase public.users Table"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
-                      <span className="hidden sm:inline">{isSyncing ? 'កំពុង Sync...' : 'Sync Cloud'}</span>
+                      <span className="hidden sm:inline">{isSyncing ? 'កំពុងផ្ទៀងផ្ទាត់...' : 'Sync Database (users)'}</span>
                     </button>
                   )}
 
@@ -974,16 +990,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">
-                      អ៊ីមែលចូលប្រើ <span className="text-rose-500">*</span>
+                      អាសយដ្ឋាន Gmail ពិតប្រាកដ <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="email"
                       required
-                      placeholder="ឧ. user@company.com"
+                      placeholder="ឧ. yourname@gmail.com"
                       value={formEmail}
                       onChange={(e) => setFormEmail(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium focus:outline-hidden focus:border-indigo-600"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium focus:outline-hidden focus:border-indigo-600 font-mono"
                     />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      💡 ត្រូវតែជា Gmail ពិតដើម្បីធានាការរក្សាទុក និងទាញយកទិន្នន័យពី Database ត្រឹមត្រូវ 100%
+                    </p>
                   </div>
 
                   <div>

@@ -427,14 +427,14 @@ export async function verifyUserWithSupabaseDatabase(
     return { success: true, user: matchedUser };
   };
 
-  // 1. Try direct real-time query against Supabase users table if client is online
+  // 1. Direct Real-Time Query against Supabase Database 'users' Table
   if (supabase) {
     try {
       const { data, error } = await supabase
         .from('users')
         .select('*');
 
-      if (!error && data && data.length > 0) {
+      if (!error && Array.isArray(data) && data.length > 0) {
         const cloudUsers = data.map(dbRowToUser);
         const cloudResult = verifyAgainstUsersList(cloudUsers);
         if (cloudResult.success) {
@@ -442,11 +442,11 @@ export async function verifyUserWithSupabaseDatabase(
         }
       }
     } catch {
-      // Graceful fallback to local verified list below
+      // Graceful fallback to local verified list only if network is offline
     }
   }
 
-  // 2. Graceful Offline / Local Whitelist fallback
+  // 2. Offline / Local Whitelist fallback (Only for real registered accounts)
   const localUsers = getLocalPool();
   const localResult = verifyAgainstUsersList(localUsers);
   if (localResult.success) {

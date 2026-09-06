@@ -308,6 +308,57 @@ export const INITIAL_USERS: UserAccount[] = [
     status: 'active',
     joinedDate: '2025-01-10',
   },
+  {
+    id: 'user-manager-1',
+    name: 'Sokha (Manager)',
+    khmerName: 'សុខា (Manager)',
+    email: 'sokha@taskmate.kh',
+    password: 'manager123',
+    phone: '012 111 222',
+    role: 'manager',
+    department: 'គ្រប់គ្រងទូទៅ',
+    avatarColor: 'from-amber-500 to-orange-600',
+    avatarInitial: 'ស',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
+    visibilityScope: 'department',
+    bio: 'ប្រធានផ្នែក - ត្រួតពិនិត្យ និងចាត់តាំងការងារក្នុងផ្នែក',
+    status: 'active',
+    joinedDate: '2025-01-12',
+  },
+  {
+    id: 'user-member-1',
+    name: 'Bopha (Member)',
+    khmerName: 'បុប្ផា (Member)',
+    email: 'bopha@taskmate.kh',
+    password: 'member123',
+    phone: '012 333 444',
+    role: 'member',
+    department: 'រចនា & Design',
+    avatarColor: 'from-emerald-500 to-teal-600',
+    avatarInitial: 'ប',
+    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
+    visibilityScope: 'assigned_only',
+    bio: 'សមាជិក - បំពេញ និងគ្រប់គ្រងកិច្ចការដែលបានចាត់តាំង',
+    status: 'active',
+    joinedDate: '2025-01-15',
+  },
+  {
+    id: 'user-viewer-1',
+    name: 'Dara (Viewer)',
+    khmerName: 'តារា (Viewer)',
+    email: 'dara@taskmate.kh',
+    password: 'viewer123',
+    phone: '012 555 666',
+    role: 'viewer',
+    department: 'ទីផ្សារ & Marketing',
+    avatarColor: 'from-slate-500 to-zinc-600',
+    avatarInitial: 'ត',
+    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
+    visibilityScope: 'assigned_only',
+    bio: 'អ្នកមើល / ភ្ញៀវ - តាមដានវឌ្ឍនភាពកិច្ចការ',
+    status: 'active',
+    joinedDate: '2025-01-18',
+  },
 ];
 
 export const INITIAL_ACTIVITY_LOGS: ActivityLog[] = [];
@@ -353,24 +404,47 @@ export function canUserViewTask(
   // Unassigned tasks created by no one specific can be seen or claimed
   if (!task.assigneeId && !task.creatorId) return true;
 
-  // Personal or direct match
-  if (task.assigneeId === currentUser.id || task.creatorId === currentUser.id) {
+  const currentUserId = currentUser.id;
+  const currentUserEmail = (currentUser.email || '').trim().toLowerCase();
+  const currentUserName = (currentUser.khmerName || currentUser.name || '').trim().toLowerCase();
+
+  // 1. Direct ID match
+  if (task.assigneeId === currentUserId || task.creatorId === currentUserId) {
     return true;
   }
 
-  // Department scope
+  // 2. Direct Name match (if task assigneeName/creatorName matches)
+  if (
+    currentUserName &&
+    ((task.assigneeName && task.assigneeName.trim().toLowerCase() === currentUserName) ||
+      (task.creatorName && task.creatorName.trim().toLowerCase() === currentUserName))
+  ) {
+    return true;
+  }
+
+  // 3. Match via allUsers by email / ID
+  const taskAssigneeUser = task.assigneeId ? allUsers.find((u) => u.id === task.assigneeId) : undefined;
+  const taskCreatorUser = task.creatorId ? allUsers.find((u) => u.id === task.creatorId) : undefined;
+
+  if (currentUserEmail) {
+    if (taskAssigneeUser?.email && taskAssigneeUser.email.trim().toLowerCase() === currentUserEmail) {
+      return true;
+    }
+    if (taskCreatorUser?.email && taskCreatorUser.email.trim().toLowerCase() === currentUserEmail) {
+      return true;
+    }
+  }
+
+  // 4. Department scope
   if (scope === 'department') {
     const userDept = (currentUser.department || '').trim().toLowerCase();
     if (!userDept) return true;
 
     // Check if task assignee or creator belongs to the same department
-    const assignee = allUsers.find((u) => u.id === task.assigneeId);
-    const creator = allUsers.find((u) => u.id === task.creatorId);
-
-    if (assignee && (assignee.department || '').trim().toLowerCase() === userDept) {
+    if (taskAssigneeUser && (taskAssigneeUser.department || '').trim().toLowerCase() === userDept) {
       return true;
     }
-    if (creator && (creator.department || '').trim().toLowerCase() === userDept) {
+    if (taskCreatorUser && (taskCreatorUser.department || '').trim().toLowerCase() === userDept) {
       return true;
     }
   }
@@ -465,6 +539,39 @@ export const DEMO_LOGIN_ACCOUNTS: DemoCredential[] = [
     descriptionKh: 'សិទ្ធិពេញលេញលើកិច្ចការ អ្នកប្រើប្រាស់ RBAC និង Cloud DB',
     avatarColor: 'from-rose-500 to-indigo-600',
     avatarInitial: 'ព',
+  },
+  {
+    role: 'manager',
+    email: 'sokha@taskmate.kh',
+    password: 'manager123',
+    nameKh: 'សុខា (Manager)',
+    nameEn: 'Sokha (Manager)',
+    roleTitleKh: 'ប្រធានផ្នែក (Department Manager)',
+    descriptionKh: 'គ្រប់គ្រង និងចាត់តាំងការងារក្នុងផ្នែក',
+    avatarColor: 'from-amber-500 to-orange-600',
+    avatarInitial: 'ស',
+  },
+  {
+    role: 'member',
+    email: 'bopha@taskmate.kh',
+    password: 'member123',
+    nameKh: 'បុប្ផា (Member)',
+    nameEn: 'Bopha (Member)',
+    roleTitleKh: 'សមាជិកប្រតិបត្តិ (Team Member)',
+    descriptionKh: 'បំពេញ និងកែប្រែកិច្ចការដែលបានទទួល',
+    avatarColor: 'from-emerald-500 to-teal-600',
+    avatarInitial: 'ប',
+  },
+  {
+    role: 'viewer',
+    email: 'dara@taskmate.kh',
+    password: 'viewer123',
+    nameKh: 'តារា (Viewer)',
+    nameEn: 'Dara (Viewer)',
+    roleTitleKh: 'អ្នកតាមដាន / ភ្ញៀវ (Viewer)',
+    descriptionKh: 'មើល និងតាមដានវឌ្ឍនភាពកិច្ចការ',
+    avatarColor: 'from-slate-500 to-zinc-600',
+    avatarInitial: 'ត',
   },
 ];
 
