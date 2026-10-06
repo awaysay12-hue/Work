@@ -12,14 +12,27 @@
     <link rel="apple-touch-icon" href="https://media.licdn.com/dms/image/v2/C560BAQF9ZB9CkX4iUA/company-logo_200_200/company-logo_200_200/0/1630643946400/sokha_printing_logo?e=2147483647&v=beta&t=pw-C2fZF3thYSrSFbhK49soL50jSUHpnBkpwzshWplw" />
     <link rel="icon" type="image/png" href="https://media.licdn.com/dms/image/v2/C560BAQF9ZB9CkX4iUA/company-logo_200_200/company-logo_200_200/0/1630643946400/sokha_printing_logo?e=2147483647&v=beta&t=pw-C2fZF3thYSrSFbhK49soL50jSUHpnBkpwzshWplw" />
     <title>កម្មវិធីគ្រប់គ្រងការងារប្រចាំថ្ងៃ</title>
-    <meta name="description" content="កម្មវិធីគ្រប់គ្រងកិច្ចការប្រចាំថ្ងៃ មុខងាររំលឹកកាលកំណត់ និងតាមដានវឌ្ឍនភាពការងារយ៉ាងលម្អិត។" />
+    <meta name="description" content="កម្មវិធីគ្រប់គ្រងកិច្ចការប្រចាំថ្ងៃ មុខងាររំលឹកកាលកំណត់ តាមដានការចំណាយ IT Support ប្រចាំខែ និងធ្វើសមកាលកម្មជាមួយ Google Sheets។" />
     <meta property="og:title" content="កម្មវិធីគ្រប់គ្រងការងារប្រចាំថ្ងៃ" />
-    <meta property="og:description" content="កម្មវិធីគ្រប់គ្រងកិច្ចការប្រចាំថ្ងៃ មុខងាររំលឹកកាលកំណត់ និងតាមដានវឌ្ឍនភាពការងារយ៉ាងលម្អិត។" />
+    <meta property="og:description" content="កម្មវិធីគ្រប់គ្រងកិច្ចការប្រចាំថ្ងៃ មុខងាររំលឹកកាលកំណត់ តាមដានការចំណាយ IT Support ប្រចាំខែ និងធ្វើសមកាលកម្មជាមួយ Google Sheets។" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:ital,wght@0,100..700;1,100..700&family=Noto+Sans+Khmer:wght@100..900&family=Battambang:wght@400;700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('kh_daily_theme_mode_v1') || localStorage.getItem('theme_mode') || localStorage.getItem('dark_mode');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (saved === 'dark' || (!saved && prefersDark)) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-900 font-khmer antialiased selection:bg-indigo-500 selection:text-white">
     <div id="root"></div>

@@ -7,6 +7,8 @@ import {
   Flame,
   Plus,
   Menu,
+  PanelLeftOpen,
+  PanelLeftClose,
   Database,
   Shield,
   Users,
@@ -26,6 +28,8 @@ import {
   Zap,
   HardDrive,
   Link2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { formatKhmerDate, formatKhmerTime, getTodayDateString } from '../utils/khmerDates';
 import { toKhmerNumber } from '../utils/translations';
@@ -56,11 +60,16 @@ interface HeaderProps {
   canManageUsers?: boolean;
   onOpenAuthModal?: () => void;
   onLogout?: () => void;
+  onSwitchAccount?: () => void;
   systemConfig?: SystemConfig;
   onToggleMaintenance?: () => void;
   onOpenReleaseVersion?: () => void;
   onOpenStorageOptimizer?: () => void;
   onOpenPortalLinks?: () => void;
+  isDarkMode?: boolean;
+  onToggleDarkMode?: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -70,6 +79,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSound,
   onOpenNewTask,
   onToggleMobileSidebar,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
   tasks,
   onOpenSupabaseModal,
   supabaseSyncStatus = 'synced',
@@ -84,11 +95,14 @@ export const Header: React.FC<HeaderProps> = ({
   canManageUsers = false,
   onOpenAuthModal,
   onLogout,
+  onSwitchAccount,
   systemConfig,
   onToggleMaintenance,
   onOpenReleaseVersion,
   onOpenStorageOptimizer,
   onOpenPortalLinks,
+  isDarkMode = false,
+  onToggleDarkMode,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [notificationPermission, setNotificationPermission] = useState<string>(
@@ -133,24 +147,69 @@ export const Header: React.FC<HeaderProps> = ({
   const completedToday = todayTasks.filter((t) => t.completed).length;
   const currentRoleCfg = ROLE_CONFIGS[currentUser.role] || ROLE_CONFIGS.member;
 
+  const handleToggleThemeInternal = () => {
+    if (onToggleDarkMode) {
+      onToggleDarkMode();
+    } else {
+      const root = document.documentElement;
+      const willBeDark = !root.classList.contains('dark');
+      if (willBeDark) {
+        root.classList.add('dark');
+        document.body.classList.add('dark');
+        localStorage.setItem('kh_daily_theme_mode_v1', 'dark');
+        localStorage.setItem('theme_mode', 'dark');
+      } else {
+        root.classList.remove('dark');
+        document.body.classList.remove('dark');
+        localStorage.setItem('kh_daily_theme_mode_v1', 'light');
+        localStorage.setItem('theme_mode', 'light');
+      }
+      soundFx.playClick();
+    }
+  };
+
   return (
-    <header className="h-14 sm:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 lg:px-8 sticky top-0 z-30 shrink-0 select-none">
+    <header className="h-14 sm:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-3 sm:px-6 lg:px-8 sticky top-0 z-30 shrink-0 select-none transition-colors">
       {/* Left: Hamburger on mobile + Greeting & Status Pill */}
       <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1 mr-2">
-        {/* Mobile menu trigger */}
+        {/* Show/Hide Menu Toggle (Desktop & Mobile) - Allows collapsing sidebar to view larger workspace */}
         <button
-          onClick={onToggleMobileSidebar}
-          className="lg:hidden p-1.5 sm:p-2 rounded-lg text-slate-600 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0"
-          aria-label="Open sidebar menu"
+          id="main-nav-menu-toggle"
+          type="button"
+          onClick={() => {
+            if (onToggleSidebar) {
+              onToggleSidebar();
+            } else if (onToggleMobileSidebar) {
+              onToggleMobileSidebar();
+            }
+          }}
+          className={`flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border text-xs font-semibold transition-all duration-200 cursor-pointer shadow-2xs select-none active:scale-95 shrink-0 ${
+            isSidebarCollapsed
+              ? 'bg-purple-600 hover:bg-purple-500 text-white border-purple-500 shadow-sm shadow-purple-600/30'
+              : 'bg-purple-50/80 hover:bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 dark:text-purple-300 border-purple-200/90 dark:border-purple-800/80'
+          }`}
+          title={
+            isSidebarCollapsed
+              ? 'ចុចដើម្បីបើកមឺនុយចំហៀង (Show Sidebar Menu)'
+              : 'ចុចដើម្បីបិទមឺនុយចំហៀង ដើម្បីមើលទំហំធំជាងមុន (Hide/Collapse Menu for Wider View)'
+          }
+          aria-label={isSidebarCollapsed ? 'Show Sidebar Menu' : 'Collapse Sidebar Menu'}
         >
-          <Menu className="w-5 h-5" />
+          {isSidebarCollapsed ? (
+            <PanelLeftOpen className="w-4 h-4 text-white" />
+          ) : (
+            <Menu className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+          )}
+          <span className="hidden sm:inline font-bold text-[11px]">
+            {isSidebarCollapsed ? 'បើកមឺនុយ' : 'មឺនុយ'}
+          </span>
         </button>
 
         {/* User Greeting - Optimized for Phone */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs sm:text-base font-bold text-slate-800 truncate">
+              <span className="text-xs sm:text-base font-bold text-slate-800 dark:text-slate-100 truncate">
                 សួស្តី, {currentUser.khmerName}
               </span>
               <span className={`inline-flex items-center gap-1 text-[9px] sm:text-xs px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-full font-bold border shrink-0 ${currentRoleCfg.badgeBg} ${currentRoleCfg.badgeText} ${currentRoleCfg.badgeBorder}`}>
@@ -158,69 +217,80 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden xs:inline">{currentRoleCfg.titleKh}</span>
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-medium sm:hidden truncate">
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium sm:hidden truncate">
               {formatKhmerDate(todayStr, false)}
             </p>
           </div>
         </div>
 
-        <div className="hidden xl:flex items-center text-xs text-slate-500 pl-2 border-l border-slate-200">
+        <div className="hidden xl:flex items-center text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800">
           <span>{formatKhmerDate(todayStr, true)}</span>
           {currentTime && <span className="ml-1.5 font-medium">• ម៉ោង {toKhmerNumber(currentTime)}</span>}
         </div>
       </div>
 
-      {/* Right: Sound, Notifications, Streak & User Profile */}
-      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-        {/* Cloud Database Sync Pill */}
-        {onOpenSupabaseModal && (
-          <button
-            onClick={onOpenSupabaseModal}
-            className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-              supabaseSyncStatus === 'synced'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                : supabaseSyncStatus === 'syncing'
-                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-            }`}
-            title="Supabase Database Status & Sync"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">
-              {supabaseSyncStatus === 'synced' ? 'Cloud DB' : supabaseSyncStatus === 'syncing' ? 'Syncing...' : 'DB Ready'}
-            </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          </button>
-        )}
-
+      {/* Right: Sound, Notifications, Streak, Theme & User Profile */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         {/* Today's Summary Report Button */}
         {onOpenTodaySummary && (
           <button
             onClick={onOpenTodaySummary}
-            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition-all shadow-2xs cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100/90 hover:bg-slate-200/90 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 text-xs font-semibold transition-all shadow-2xs cursor-pointer"
             title="ចុចដើម្បីមើល ឬចម្លងរបាយការណ៍សរុបថ្ងៃនេះ (Today's Summary Report)"
           >
-            <FileText className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="hidden md:inline">របាយការណ៍ថ្ងៃនេះ</span>
+            <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span className="hidden md:inline">របាយការណ៍</span>
           </button>
         )}
 
         {/* Streak Pill */}
         <div
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-bold text-xs"
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-yellow-500/15 border border-amber-300/80 dark:border-amber-700/60 text-amber-900 dark:text-amber-300 font-bold text-xs shadow-2xs hover:scale-105 transition-transform cursor-default"
           title={`បន្តជាប់គ្នា ${streak.currentStreak} ថ្ងៃ`}
         >
-          <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-pulse" />
+          <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-bounce" />
           <span>{toKhmerNumber(streak.currentStreak)} ថ្ងៃ</span>
         </div>
+
+        {/* Dedicated Theme Toggle Button (Dark / Light Mode) */}
+        <button
+          id="main-nav-theme-toggle"
+          type="button"
+          role="switch"
+          aria-checked={isDarkMode}
+          onClick={handleToggleThemeInternal}
+          className={`group relative flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer shadow-2xs select-none active:scale-95 ${
+            isDarkMode
+              ? 'bg-slate-800 hover:bg-slate-750 text-amber-300 border-slate-700 hover:border-amber-400/50 shadow-inner'
+              : 'bg-amber-50/90 hover:bg-amber-100 text-amber-900 border-amber-200 hover:border-amber-300'
+          }`}
+          title={isDarkMode ? 'ប្តូរទៅទម្រង់ពន្លឺ (Switch to Light Mode)' : 'ប្តូរទៅទម្រង់ងងឹត (Switch to Dark Mode)'}
+          aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        >
+          <div
+            className={`flex items-center justify-center w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-lg transition-transform duration-300 group-hover:rotate-12 ${
+              isDarkMode ? 'bg-amber-400/15 text-amber-300' : 'bg-amber-500/15 text-amber-600'
+            }`}
+          >
+            {isDarkMode ? (
+              <Moon className="w-3.5 h-3.5 fill-amber-300/30 text-amber-300" />
+            ) : (
+              <Sun className="w-3.5 h-3.5 fill-amber-500/30 text-amber-600" />
+            )}
+          </div>
+
+          <span className="hidden sm:inline font-bold text-[11px] tracking-tight">
+            {isDarkMode ? 'ងងឹត' : 'ពន្លឺ'}
+          </span>
+        </button>
 
         {/* Sound Toggle */}
         <button
           onClick={onToggleSound}
-          className={`p-1.5 sm:p-2 rounded-lg border text-xs transition-colors ${
+          className={`p-1.5 sm:p-2 rounded-xl border text-xs transition-colors cursor-pointer ${
             soundEnabled
-              ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-              : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+              ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+              : 'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
           }`}
           title={soundEnabled ? 'បិទសំឡេង' : 'បើកសំឡេង'}
         >
@@ -230,86 +300,44 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Phone Lock Screen Notification & Bell */}
         <button
           onClick={onOpenPhoneNotificationModal || handleRequestNotification}
-          className="relative p-1.5 sm:p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors"
+          className="relative p-1.5 sm:p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
           title="Notification លើទូរស័ព្ទ & Lock Screen"
         >
           {activeRemindersCount > 0 ? (
-            <BellRing className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 animate-bounce" />
+            <BellRing className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400 animate-bounce" />
           ) : (
             <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           )}
           {activeRemindersCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-rose-500 text-white rounded-full text-[8px] sm:text-[9px] font-black flex items-center justify-center border-2 border-white shadow-2xs">
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-rose-500 text-white rounded-full text-[8px] sm:text-[9px] font-black flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-2xs">
               {toKhmerNumber(activeRemindersCount)}
             </span>
           )}
         </button>
 
-        {/* New Task Button - Hidden on mobile because MobileBottomNav has FAB */}
+        {/* Primary Action Button: Create Task */}
         {canCreateTask && (
           <button
             onClick={onOpenNewTask}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 active:scale-95 text-white text-xs font-bold transition-all shadow-md hover:shadow-purple-500/25 hover:scale-105 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
             <span>កិច្ចការថ្មី +</span>
           </button>
         )}
 
-        {/* Turbo Storage Optimizer Button - Super Admin Only */}
-        {currentUser.role === 'admin' && onOpenStorageOptimizer && (
-          <button
-            onClick={onOpenStorageOptimizer}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100/80 active:bg-emerald-200 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
-            title="ពិនិត្យកន្លែងផ្ទុកតាម User, បង្រួមទំហំ Data & បង្កើនល្បឿន Web (Turbo Speed)"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <Zap className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
-            <span className="font-mono text-[11px] font-extrabold">Turbo Data</span>
-          </button>
-        )}
-
-        {/* Super Admin Maintenance Trigger Button */}
-        {currentUser.role === 'admin' && onToggleMaintenance && (
-          <button
-            onClick={onToggleMaintenance}
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              systemConfig?.isMaintenance
-                ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400/50 shadow-xs animate-pulse'
-                : 'bg-slate-100 text-slate-700 hover:bg-amber-50 hover:text-amber-800 border border-slate-200'
-            }`}
-            title={systemConfig?.isMaintenance ? "ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin" : "បើក Maintenance Mode កែប្រែប្រព័ន្ធ"}
-          >
-            <Wrench className="w-3.5 h-3.5 text-amber-600" />
-            <span>{systemConfig?.isMaintenance ? '🛠️ កំពុងកែប្រែ' : 'កែប្រែប្រព័ន្ធ'}</span>
-          </button>
-        )}
-
-        {/* Super Admin Portal Links & User Whitelist Access button - Super Admin Only */}
-        {currentUser.role === 'admin' && onOpenPortalLinks && (
-          <button
-            onClick={onOpenPortalLinks}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs cursor-pointer bg-gradient-to-r from-indigo-50 to-indigo-100/80 border-indigo-200/90 text-indigo-800 hover:from-indigo-100 hover:to-indigo-200 active:scale-95"
-            title="បង្កើត & ចែករំលែក Link ច្រកចូលសម្រាប់សមាជិក (Whitelist Access)"
-          >
-            <Link2 className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="hidden lg:inline">Link ច្រកចូល & Whitelist</span>
-            <span className="lg:hidden">Link សមាជិក</span>
-          </button>
-        )}
-
         {/* User Profile Pill & Dropdown Switcher */}
-        <div className="relative border-l pl-1.5 sm:pl-3 border-slate-200" ref={profileMenuRef}>
+        <div className="relative border-l pl-1.5 sm:pl-3 border-slate-200 dark:border-slate-800" ref={profileMenuRef}>
           <button
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-            className="flex items-center gap-1.5 sm:gap-2 p-0.5 sm:p-1 rounded-xl hover:bg-slate-100 transition-all cursor-pointer text-left"
+            className="flex items-center gap-1.5 sm:gap-2 p-0.5 sm:p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer text-left"
             aria-label="User profile menu"
           >
             <div className="text-right hidden md:block">
-              <p className="text-xs font-bold text-slate-900 leading-tight">
+              <p className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight">
                 {currentUser.khmerName}
               </p>
-              <p className="text-[11px] text-slate-500 leading-tight">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
                 {currentRoleCfg.titleKh}
               </p>
             </div>
@@ -322,14 +350,14 @@ export const Header: React.FC<HeaderProps> = ({
               size="sm"
               showBadge={true}
             />
-            <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 dark:text-slate-500 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
           {/* Dropdown Menu - Fixed positioning on mobile so it never overflows */}
           {isProfileMenuOpen && (
-            <div className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] max-w-xs sm:w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] max-w-xs sm:w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
               {/* Profile Card Header */}
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/70">
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60">
                 <div className="flex items-center gap-3">
                   <UserAvatar
                     avatarUrl={currentUser.avatarUrl}
@@ -341,10 +369,10 @@ export const Header: React.FC<HeaderProps> = ({
                     showBadge={true}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-slate-900 truncate">
+                    <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                       {currentUser.khmerName}
                     </p>
-                    <p className="text-[11px] text-slate-500 truncate">{currentUser.email}</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{currentUser.email}</p>
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.2 rounded-md text-[10px] font-bold border mt-1 ${currentRoleCfg.badgeBg} ${currentRoleCfg.badgeText} ${currentRoleCfg.badgeBorder}`}
                     >
@@ -353,22 +381,45 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                  ផ្នែក៖ <span className="font-semibold text-slate-700">{currentUser.department}</span>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 bg-white dark:bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                  ផ្នែក៖ <span className="font-semibold text-slate-700 dark:text-slate-200">{currentUser.department}</span>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="p-2 space-y-1 border-b border-slate-100">
+              <div className="p-2 space-y-1 border-b border-slate-100 dark:border-slate-800">
+                {/* Theme Mode Toggle inside Menu */}
+                <button
+                  type="button"
+                  onClick={handleToggleThemeInternal}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    {isDarkMode ? (
+                      <Moon className="w-4 h-4 text-amber-400 fill-amber-400/20" />
+                    ) : (
+                      <Sun className="w-4 h-4 text-amber-500 fill-amber-500/20" />
+                    )}
+                    <span>{isDarkMode ? 'ទម្រង់ងងឹត (Dark Mode)' : 'ទម្រង់ពន្លឺ (Light Mode)'}</span>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    isDarkMode
+                      ? 'bg-slate-800 border-slate-700 text-amber-300'
+                      : 'bg-amber-50 border-amber-200 text-amber-800'
+                  }`}>
+                    {isDarkMode ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+
                 {onOpenTodaySummary && (
                   <button
                     onClick={() => {
                       onOpenTodaySummary();
                       setIsProfileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-800 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700 dark:hover:text-indigo-300 rounded-xl transition-colors cursor-pointer"
                   >
-                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>សរុបរបាយការណ៍ថ្ងៃនេះ (Daily Report)</span>
                   </button>
                 )}
@@ -379,9 +430,9 @@ export const Header: React.FC<HeaderProps> = ({
                       onOpenPhoneNotificationModal();
                       setIsProfileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-800 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700 dark:hover:text-indigo-300 rounded-xl transition-colors cursor-pointer"
                   >
-                    <Smartphone className="w-4 h-4 text-indigo-600" />
+                    <Smartphone className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Notification & Lock Screen ទូរស័ព្ទ</span>
                   </button>
                 )}
@@ -392,9 +443,9 @@ export const Header: React.FC<HeaderProps> = ({
                       onOpenProfileModal();
                       setIsProfileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                   >
-                    <User className="w-4 h-4 text-indigo-600" />
+                    <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>កែប្រែ Profile & រូបថត (Edit Profile)</span>
                   </button>
                 )}
@@ -405,9 +456,9 @@ export const Header: React.FC<HeaderProps> = ({
                       onOpenUserManagement();
                       setIsProfileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800/60 rounded-xl transition-colors cursor-pointer"
                   >
-                    <Shield className="w-4 h-4 text-indigo-600" />
+                    <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                     <span>គ្រប់គ្រងសិទ្ធិ & សមាជិក (RBAC Pro)</span>
                   </button>
                 )}
@@ -482,10 +533,10 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
 
-              {/* Quick Switch Profiles - Super Admin Only */}
-              {currentUser.role === 'admin' && users.length > 1 && (
-                <div className="p-2 border-b border-slate-100">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1 flex items-center justify-between">
+              {/* Quick Switch Profiles */}
+              {users.length > 1 && (
+                <div className="p-2 border-b border-slate-100 dark:border-slate-800">
+                  <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase px-2 py-1 flex items-center justify-between">
                     <span>ប្តូរគណនីប្រើប្រាស់ភ្លាមៗ</span>
                     <ArrowRightLeft className="w-3 h-3 text-indigo-500" />
                   </div>
@@ -500,10 +551,10 @@ export const Header: React.FC<HeaderProps> = ({
                             onSwitchUser(u);
                             setIsProfileMenuOpen(false);
                           }}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left transition-colors text-xs ${
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left transition-colors text-xs cursor-pointer ${
                             isSelected
-                              ? 'bg-indigo-50 text-indigo-900 font-bold'
-                              : 'hover:bg-slate-100 text-slate-700'
+                              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 font-bold'
+                              : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
                           }`}
                         >
                           <div className="flex items-center gap-2 truncate">
@@ -526,18 +577,22 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
 
-              {/* Auth / Logout */}
+              {/* Auth / Switch Account / Logout */}
               <div className="p-2 space-y-1">
-                {onOpenAuthModal && (
+                {(onSwitchAccount || onOpenAuthModal) && (
                   <button
                     onClick={() => {
-                      onOpenAuthModal();
+                      if (onSwitchAccount) {
+                        onSwitchAccount();
+                      } else if (onOpenAuthModal) {
+                        onOpenAuthModal();
+                      }
                       setIsProfileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl transition-colors cursor-pointer"
                   >
-                    <KeyRound className="w-4 h-4 text-slate-500" />
-                    <span>ផ្ទាំង Login & Password ទំនើប</span>
+                    <ArrowRightLeft className="w-4 h-4 text-indigo-500" />
+                    <span>ប្តូរគណនី / ចូលគណនីផ្សេង (Switch Account)</span>
                   </button>
                 )}
 
@@ -547,9 +602,9 @@ export const Header: React.FC<HeaderProps> = ({
                       onLogout();
                       setIsProfileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
                   >
-                    <LogOut className="w-4 h-4 text-rose-500" />
+                    <LogOut className="w-4 h-4 text-rose-500 dark:text-rose-400" />
                     <span>ចាកចេញពីគណនី (Sign Out)</span>
                   </button>
                 )}

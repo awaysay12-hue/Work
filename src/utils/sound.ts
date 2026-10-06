@@ -16,7 +16,7 @@ class SoundEffects {
     }
   }
 
-  // Play gentle reminder chime
+  // Play reminder chime / bell
   playReminderChime() {
     if (!this.soundEnabled) return;
     try {
@@ -89,6 +89,16 @@ class SoundEffects {
   // Alias for celebration
   playCelebration() {
     this.playTaskCompleteFanfare();
+  }
+
+  // Play bell notification
+  playBell() {
+    this.playReminderChime();
+  }
+
+  // Play delete sound
+  playDelete() {
+    this.playAlert();
   }
 
   // Play alert/error sound

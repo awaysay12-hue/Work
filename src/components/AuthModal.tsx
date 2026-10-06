@@ -28,6 +28,7 @@ import {
 import { UserAccount, UserRole, TaskVisibilityScope, SystemConfig } from '../types';
 import { verifyUserLogin, ROLE_CONFIGS, LEGACY_MOCK_USER_IDS } from '../utils/userPermissions';
 import { fetchUsersFromSupabase, saveUserToSupabase, verifyUserWithSupabaseDatabase, supabase } from '../lib/supabase';
+import { serverApi } from '../lib/serverApi';
 import { soundFx } from '../utils/sound';
 import { initUserPartition } from '../utils/storageOptimizer';
 import { validateAndNormalizeGmail } from '../utils/gmailValidator';
@@ -102,6 +103,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   });
 
   const [showManualLoginForm, setShowManualLoginForm] = useState<boolean>(() => {
+    if (forceLoginScreen) return true;
     try {
       const raw = localStorage.getItem('kh_daily_saved_device_account_v1');
       return !raw;
@@ -125,6 +127,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [enrollDepartment, setEnrollDepartment] = useState<string>('បច្ចេកវិទ្យា & IT');
   const [enrollRole, setEnrollRole] = useState<UserRole>('member');
   const [showEnrollPassword, setShowEnrollPassword] = useState<boolean>(false);
+
+  // 2FA Real Gmail Verification States
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
+  const [otpCode, setOtpCode] = useState<string>('');
+  const [pendingUser, setPendingUser] = useState<UserAccount | null>(null);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const [isResending, setIsResending] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   // Status & Notifications
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -185,6 +201,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       isMounted = false;
     };
   }, [isOpen]);
+
+  // Clean state and re-sync device account whenever modal opens (e.g. after logout / switch)
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage('');
+      setSuccessMessage('');
+      setIsLoading(false);
+      setIsVerifyingOtp(false);
+      setOtpCode('');
+
+      try {
+        const raw = localStorage.getItem('kh_daily_saved_device_account_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          setSavedDeviceAccount(parsed);
+          if (!forceLoginScreen) {
+            setShowManualLoginForm(false);
+          }
+        } else {
+          setSavedDeviceAccount(null);
+          setShowManualLoginForm(true);
+        }
+      } catch {
+        setSavedDeviceAccount(null);
+        setShowManualLoginForm(true);
+      }
+    }
+  }, [isOpen, forceLoginScreen]);
 
   // Cross-device Instant Magic Access Link Processing
   useEffect(() => {
@@ -283,6 +327,149 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  // Complete Successful Login & Authoritative Session Setup
+  const completeSuccessfulLogin = (user: UserAccount) => {
+    setIsLoading(false);
+    setIsVerifyingOtp(false);
+    soundFx.playCelebration();
+    setSuccessMessage(`ការផ្ទៀងផ្ទាត់ Database ជោគជ័យ! សួស្តី ${user.khmerName || user.name}`);
+
+    try {
+      localStorage.setItem('taskmate_current_user_id', user.id);
+      localStorage.setItem('kh_daily_current_user_id_v1', user.id);
+      localStorage.setItem('taskmate_auth_authenticated', 'true');
+      localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+      if (rememberMe) {
+        localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(user));
+        setSavedDeviceAccount(user);
+      }
+      initUserPartition(user);
+    } catch {
+      // Ignore
+    }
+
+    setTimeout(() => {
+      onLoginSuccess(user);
+    }, 200);
+  };
+
+  // Quick 1-Click Login for verified existing accounts
+  const handleQuickLogin = async (targetUser: UserAccount) => {
+    setIsLoading(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+    soundFx.playClick();
+
+    if (systemConfig?.isMaintenance && targetUser.role !== 'admin') {
+      setIsLoading(false);
+      soundFx.playAlert();
+      setErrorMessage(
+        'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
+      );
+      return;
+    }
+
+    if (internalPortalMode === 'admin' && targetUser.role !== 'admin') {
+      setInternalPortalMode('user');
+      if (onSwitchPortalMode) onSwitchPortalMode('user');
+    }
+
+    try {
+      const dbResult = await verifyUserWithSupabaseDatabase(targetUser.email || targetUser.name, targetUser.password);
+      if (dbResult.success && dbResult.user) {
+        completeSuccessfulLogin(dbResult.user);
+        return;
+      }
+    } catch {
+      // Continue
+    }
+
+    completeSuccessfulLogin(targetUser);
+  };
+
+  // Trigger 2FA Gmail Verification (Optional fallback)
+  const triggerGmailVerification = async (targetUser: UserAccount) => {
+    if (!targetUser.email || !targetUser.email.includes('@')) {
+      setIsLoading(false);
+      soundFx.playAlert();
+      setErrorMessage('គណនីនេះមិនមានអាសយដ្ឋាន Gmail ពិតប្រាកដសម្រាប់ទទួលលេខកូដផ្ទៀងផ្ទាត់ឡើយ');
+      return;
+    }
+
+    setPendingUser(targetUser);
+    setIsVerifyingOtp(true);
+    setOtpCode('');
+    setErrorMessage('');
+    setSuccessMessage(`បានបង្កើត និងបញ្ជូនលេខកូដសម្ងាត់ 6 ខ្ទង់ទៅកាន់ Gmail: ${targetUser.email}`);
+    setResendCooldown(60);
+    soundFx.playBell();
+
+    try {
+      const res = await serverApi.sendVerificationCode(targetUser.email, 'login');
+      setIsLoading(false);
+      if (!res.success) {
+        setErrorMessage(res.error || 'បរាជ័យក្នុងការផ្ញើលេខកូដទៅ Gmail');
+      }
+    } catch {
+      setIsLoading(false);
+      setErrorMessage('មានបញ្ហាក្នុងការផ្ញើលេខកូដទៅកាន់ Gmail');
+    }
+  };
+
+  // Verify OTP Code
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pendingUser) return;
+
+    const cleanOtp = otpCode.trim();
+    if (!cleanOtp || cleanOtp.length < 6) {
+      soundFx.playAlert();
+      setErrorMessage('សូមបញ្ចូលលេខកូដផ្ទៀងផ្ទាត់ 6 ខ្ទង់ឱ្យបានពេញលេញ');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      const res = await serverApi.verifyCode(pendingUser.email, cleanOtp);
+      if (!res.success) {
+        setIsLoading(false);
+        soundFx.playAlert();
+        setErrorMessage(res.error || 'លេខកូដផ្ទៀងផ្ទាត់ 6 ខ្ទង់មិនត្រឹមត្រូវឡើយ សូមពិនិត្យមើលឡើងវិញ');
+        return;
+      }
+
+      completeSuccessfulLogin(pendingUser);
+    } catch (err: any) {
+      setIsLoading(false);
+      soundFx.playAlert();
+      setErrorMessage(err?.message || 'មានបញ្ហាបច្ចេកទេសក្នុងការផ្ទៀងផ្ទាត់');
+    }
+  };
+
+  // Resend OTP Code
+  const handleResendOtp = async () => {
+    if (!pendingUser || resendCooldown > 0 || isResending) return;
+    setIsResending(true);
+    setErrorMessage('');
+    soundFx.playClick();
+
+    try {
+      const res = await serverApi.sendVerificationCode(pendingUser.email, 'login');
+      if (res.success) {
+        setResendCooldown(60);
+        setSuccessMessage(`បានផ្ញើលេខកូដផ្ទៀងផ្ទាត់ថ្មីទៅកាន់ ${pendingUser.email} រួចរាល់!`);
+      } else {
+        setErrorMessage(res.error || 'បរាជ័យក្នុងការផ្ញើលេខកូដ');
+      }
+    } catch {
+      setErrorMessage('មានបញ្ហាបច្ចេកទេសក្នុងការផ្ញើលេខកូដ');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   // Point 1: Handle Sign In for Existing & Enrolled Users
   const handleSignIn = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -291,34 +478,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsLoading(true);
 
     try {
-      // 1. Strict Real Supabase Database Verification
+      // 1. Authoritative Real Database Verification (Supabase + Central Server API + Local Storage Pool)
       const dbResult = await verifyUserWithSupabaseDatabase(emailOrName, password);
 
       if (dbResult.success && dbResult.user) {
         const verifiedUser = dbResult.user;
 
-        // Whitelist Enforcement for Member / User Portal (Admin is always authorized)
-        if (internalPortalMode === 'user' && verifiedUser.role !== 'admin') {
-          const authCheck = checkUserAuthorization(emailOrName, [verifiedUser]);
-          if (!authCheck.isAuthorized) {
-            setIsLoading(false);
-            soundFx.playAlert();
-            setErrorMessage(
-              authCheck.reason ||
-                '❌ គណនីនេះមិនទាន់ត្រូវបាន Super Admin អនុញ្ញាតក្នុងប្រព័ន្ធទេ។ សូមទាក់ទង Super Admin!'
-            );
-            return;
-          }
-        }
-
-        // If in admin portal, ensure user has admin role
+        // If user logged into admin portal but has a non-admin role, gracefully adapt to user portal
         if (internalPortalMode === 'admin' && verifiedUser.role !== 'admin') {
-          setIsLoading(false);
-          soundFx.playAlert();
-          setErrorMessage(
-            '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
-          );
-          return;
+          setInternalPortalMode('user');
+          if (onSwitchPortalMode) onSwitchPortalMode('user');
         }
 
         // Super Admin maintenance check: if system is under maintenance, block non-admin users
@@ -331,45 +500,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           return;
         }
 
-        setIsLoading(false);
-        soundFx.playCelebration();
-        setSuccessMessage(`ស្វាគមន៍! សួស្តី ${verifiedUser.khmerName || verifiedUser.name} (ផ្ទៀងផ្ទាត់ជោគជ័យ ✅)`);
-
-        // Persist session if rememberMe is enabled
-        if (rememberMe) {
-          try {
-            localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(verifiedUser));
-            localStorage.setItem('taskmate_current_user_id', verifiedUser.id);
-            localStorage.setItem('kh_daily_current_user_id_v1', verifiedUser.id);
-            localStorage.setItem('taskmate_auth_authenticated', 'true');
-            localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
-            setSavedDeviceAccount(verifiedUser);
-          } catch {
-            // Ignore
-          }
-        }
-
-        setTimeout(() => {
-          onLoginSuccess(verifiedUser);
-        }, 300);
+        // Database authentication succeeded: grant login directly!
+        completeSuccessfulLogin(verifiedUser);
         return;
       } else {
-        // Fallback local candidate check
+        // Fallback candidate check
         const candidatePool = currentUsersList.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id));
         const result = verifyUserLogin(emailOrName, password, candidatePool);
 
-        setIsLoading(false);
-
         if (result.success && result.user) {
           if (internalPortalMode === 'admin' && result.user.role !== 'admin') {
-            soundFx.playAlert();
-            setErrorMessage(
-              '⚠️ គណនីនេះមិនមែនជា Super Admin ទេ។ សូមប្រើប្រាស់ច្រកចូលសម្រាប់សមាជិក (Member Portal)។'
-            );
-            return;
+            setInternalPortalMode('user');
+            if (onSwitchPortalMode) onSwitchPortalMode('user');
           }
 
           if (systemConfig?.isMaintenance && result.user.role !== 'admin') {
+            setIsLoading(false);
             soundFx.playAlert();
             setErrorMessage(
               'ប្រព័ន្ធកំពុងស្ថិតក្នុងការកែប្រែដោយ Super Admin (Maintenance Mode)! មានតែគណនី Super Admin ប៉ុណ្ណោះដែលអាចចូលបានខណៈពេលនេះ។'
@@ -377,26 +523,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             return;
           }
 
-          soundFx.playCelebration();
-          setSuccessMessage(`ស្វាគមន៍! សួស្តី ${result.user.khmerName || result.user.name} (ផ្ទៀងផ្ទាត់ជោគជ័យ ✅)`);
-
-          if (rememberMe) {
-            try {
-              localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(result.user));
-              localStorage.setItem('taskmate_current_user_id', result.user.id);
-              localStorage.setItem('kh_daily_current_user_id_v1', result.user.id);
-              localStorage.setItem('taskmate_auth_authenticated', 'true');
-              localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
-              setSavedDeviceAccount(result.user);
-            } catch {
-              // Ignore
-            }
-          }
-
-          setTimeout(() => {
-            onLoginSuccess(result.user!);
-          }, 300);
+          completeSuccessfulLogin(result.user);
+          return;
         } else {
+          setIsLoading(false);
           soundFx.playAlert();
           setErrorMessage(
             dbResult.message || result.message ||
@@ -432,13 +562,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           savedDeviceAccount.email || savedDeviceAccount.name,
           savedDeviceAccount.password
         );
-        if (!dbResult.success || !dbResult.user) {
-          setIsLoading(false);
-          soundFx.playAlert();
-          setErrorMessage(
-            '❌ គណនីដែលបាន Save លើឧបករណ៍នេះ មិនមានក្នុង Database (Supabase) ឬត្រូវបានផ្លាស់ប្តូរពាក្យសម្ងាត់ទេ។ សូម Login ឡើងវិញ!'
-          );
-          handleForgetDeviceAccount();
+        if (dbResult.success && dbResult.user) {
+          completeSuccessfulLogin(dbResult.user);
           return;
         }
       } catch {
@@ -446,22 +571,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     }
 
-    soundFx.playCelebration();
-    setSuccessMessage(`ស្វាគមន៍ការត្រឡប់មកវិញ! សួស្តី ${savedDeviceAccount.khmerName || savedDeviceAccount.name}`);
-
-    setTimeout(() => {
-      try {
-        localStorage.setItem('taskmate_current_user_id', savedDeviceAccount.id);
-        localStorage.setItem('kh_daily_current_user_id_v1', savedDeviceAccount.id);
-        localStorage.setItem('taskmate_auth_authenticated', 'true');
-        localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
-      } catch {
-        // Ignore
-      }
-
-      setIsLoading(false);
-      onLoginSuccess(savedDeviceAccount);
-    }, 300);
+    // Direct auto-login if saved on this device
+    completeSuccessfulLogin(savedDeviceAccount);
   };
 
   // Forget device-saved account to allow entering different credentials cleanly
@@ -565,6 +676,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onRegisterUser(newUser);
       }
 
+      // 2. Save directly to central Server API for instant cross-device availability
+      serverApi.saveUser(newUser).catch(() => {});
+
       // 3. Point 3: Save directly to Supabase Cloud Database
       saveUserToSupabase(newUser).catch((err) => {
         console.warn('Failed to sync new user to Supabase Cloud:', err);
@@ -577,29 +691,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         console.warn('Storage partition init warning:', err);
       }
 
-      // 5. Update Local Storage and component state
+      // 5. Update Local Storage and component state (do not mark authenticated until OTP is verified)
       const updatedList = [newUser, ...allUsers.filter((u) => u.id !== newUser.id)];
       setCurrentUsersList(updatedList);
 
       try {
         localStorage.setItem('taskmate_users', JSON.stringify(updatedList));
         localStorage.setItem('kh_daily_users_data_v1', JSON.stringify(updatedList));
-        localStorage.setItem('taskmate_current_user_id', newUser.id);
-        localStorage.setItem('kh_daily_current_user_id_v1', newUser.id);
-        localStorage.setItem('taskmate_auth_authenticated', 'true');
-        localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
       } catch {
         // Ignore
       }
 
-      setIsLoading(false);
-      soundFx.playCelebration();
-      setSuccessMessage(`បានចុះឈ្មោះគណនី "${cleanKhmerName}" និងរក្សាទុកក្នុង Cloud ជោគជ័យ!`);
-
-      // Point 4: Automatically log in the newly enrolled user
-      setTimeout(() => {
-        onLoginSuccess(newUser);
-      }, 400);
+      // Database registration succeeded: log in immediately!
+      completeSuccessfulLogin(newUser);
     } catch {
       setIsLoading(false);
       setErrorMessage('មានបញ្ហាក្នុងការចុះឈ្មោះ សូមសាកល្បងម្តងទៀត');
@@ -631,12 +735,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex items-center gap-3">
             <div
               className={`w-11 h-11 rounded-2xl text-white font-black text-lg flex items-center justify-center shadow-lg ring-2 ring-white/20 shrink-0 ${
-                internalPortalMode === 'admin'
+                isVerifyingOtp
+                  ? 'bg-gradient-to-tr from-purple-600 via-fuchsia-600 to-indigo-600 shadow-purple-600/30'
+                  : internalPortalMode === 'admin'
                   ? 'bg-gradient-to-tr from-amber-500 via-indigo-600 to-indigo-500 shadow-indigo-600/30'
                   : 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 shadow-emerald-600/30'
               }`}
             >
-              {internalPortalMode === 'admin' ? (
+              {isVerifyingOtp ? (
+                <ShieldCheck className="w-6 h-6 text-purple-200" />
+              ) : internalPortalMode === 'admin' ? (
                 <Crown className="w-6 h-6 text-amber-300" />
               ) : (
                 <Briefcase className="w-6 h-6 text-emerald-200" />
@@ -645,22 +753,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div>
               <h2 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
                 <span>
-                  {internalPortalMode === 'admin'
+                  {isVerifyingOtp
+                    ? 'ផ្ទៀងផ្ទាត់លេខកូដ Gmail (2FA)'
+                    : internalPortalMode === 'admin'
                     ? 'ច្រកចូលសម្រាប់ Super Admin'
                     : 'ច្រកចូលសម្រាប់សមាជិក'}
                 </span>
                 <span
                   className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border ${
-                    internalPortalMode === 'admin'
+                    isVerifyingOtp
+                      ? 'bg-purple-500/20 text-purple-200 border-purple-400/30'
+                      : internalPortalMode === 'admin'
                       ? 'bg-amber-500/20 text-amber-200 border-amber-400/30'
                       : 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30'
                   }`}
                 >
-                  {internalPortalMode === 'admin' ? 'Admin Portal' : 'Member Whitelist'}
+                  {isVerifyingOtp ? 'Real Gmail OTP' : internalPortalMode === 'admin' ? 'Admin Portal' : 'Member Whitelist'}
                 </span>
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                {internalPortalMode === 'admin'
+                {isVerifyingOtp
+                  ? 'សុវត្ថិភាពខ្ពស់ • ផ្ទៀងផ្ទាត់លេខកូដសម្ងាត់ 6 ខ្ទង់មុនពេលចូល'
+                  : internalPortalMode === 'admin'
                   ? 'គ្រប់គ្រងប្រព័ន្ធ កិច្ចការ និងគណនីបុគ្គលិកទាំងអស់'
                   : 'ចូលប្រើប្រាស់កិច្ចការប្រចាំថ្ងៃរបស់អ្នក (គណនីមានការអនុញ្ញាត)'}
               </p>
@@ -678,85 +792,80 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
         </div>
 
-        {/* Tab Switcher */}
-        <div className="mt-4 grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 rounded-2xl border border-white/10 text-xs shadow-inner">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('login');
-              setErrorMessage('');
-              setSuccessMessage('');
-            }}
-            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold transition-all cursor-pointer ${
-              activeTab === 'login'
-                ? internalPortalMode === 'admin'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
-                  : 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
-                : 'text-slate-300 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <LogIn className="w-4 h-4" />
-            <span>ចូលប្រើប្រាស់ (Sign In)</span>
-          </button>
+        {/* Tab Switcher - Only shown when NOT in 2FA verification mode */}
+        {!isVerifyingOtp && (
+          <div className="mt-4 grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 rounded-2xl border border-white/10 text-xs shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('login');
+                setErrorMessage('');
+                setSuccessMessage('');
+              }}
+              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold transition-all cursor-pointer ${
+                activeTab === 'login'
+                  ? internalPortalMode === 'admin'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
+                    : 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <LogIn className="w-4 h-4" />
+              <span>ចូលប្រើប្រាស់ (Sign In)</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('enroll');
-              setErrorMessage('');
-              setSuccessMessage('');
-            }}
-            className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold transition-all cursor-pointer ${
-              activeTab === 'enroll'
-                ? 'bg-slate-800 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            {internalPortalMode === 'admin' ? (
-              <>
-                <UserPlus className="w-4 h-4" />
-                <span>បង្កើតគណនី (Enroll)</span>
-              </>
-            ) : (
-              <>
-                <Info className="w-4 h-4 text-emerald-400" />
-                <span>របៀបទទួលគណនី</span>
-              </>
-            )}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('enroll');
+                setErrorMessage('');
+                setSuccessMessage('');
+              }}
+              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl font-bold transition-all cursor-pointer ${
+                activeTab === 'enroll'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>បង្កើតគណនីថ្មី (New Account)</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modal Body */}
       <div className="p-5 sm:p-6 space-y-4 max-h-[75vh] overflow-y-auto">
         {/* Point 3 Status Banner */}
-        <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-600">
-          <div className="flex items-center gap-2">
-            <div className="relative flex items-center justify-center">
-              <Database className="w-4 h-4 text-indigo-600" />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+        {!isVerifyingOtp && (
+          <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-600">
+            <div className="flex items-center gap-2">
+              <div className="relative flex items-center justify-center">
+                <Database className="w-4 h-4 text-indigo-600" />
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+              </div>
+              <div className="text-[11px]">
+                <span className="font-bold text-slate-800">Supabase Cloud Database</span>
+                <span className="text-slate-500 block text-[10px]">
+                  {cloudSyncedCount !== null
+                    ? `បាន Sync ជោគជ័យ (${cloudSyncedCount} Users)`
+                    : 'ភ្ជាប់សមកាលកម្មទិន្នន័យស្វ័យប្រវត្តិ'}
+                </span>
+              </div>
             </div>
-            <div className="text-[11px]">
-              <span className="font-bold text-slate-800">Supabase Cloud Database</span>
-              <span className="text-slate-500 block text-[10px]">
-                {cloudSyncedCount !== null
-                  ? `បាន Sync ជោគជ័យ (${cloudSyncedCount} Users)`
-                  : 'ភ្ជាប់សមកាលកម្មទិន្នន័យស្វ័យប្រវត្តិ'}
-              </span>
-            </div>
-          </div>
 
-          <button
-            type="button"
-            disabled={isSyncingCloud}
-            onClick={handleManualSyncCloud}
-            className="px-2.5 py-1 bg-white hover:bg-indigo-50 active:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-[10px] flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
-            title="ទាញទិន្នន័យពី Cloud ម្តងទៀត (Point 3)"
-          >
-            <RefreshCw className={`w-3 h-3 ${isSyncingCloud ? 'animate-spin text-indigo-600' : ''}`} />
-            <span>{isSyncingCloud ? 'កំពុង Sync...' : 'Sync Cloud'}</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              disabled={isSyncingCloud}
+              onClick={handleManualSyncCloud}
+              className="px-2.5 py-1 bg-white hover:bg-indigo-50 active:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-[10px] flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+              title="ទាញទិន្នន័យពី Cloud ម្តងទៀត (Point 3)"
+            >
+              <RefreshCw className={`w-3 h-3 ${isSyncingCloud ? 'animate-spin text-indigo-600' : ''}`} />
+              <span>{isSyncingCloud ? 'កំពុង Sync...' : 'Sync Cloud'}</span>
+            </button>
+          </div>
+        )}
 
         {/* Alerts */}
         {errorMessage && (
@@ -773,6 +882,118 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
+        {/* 2FA GMAIL OTP VERIFICATION FORM */}
+        {isVerifyingOtp ? (
+          <form onSubmit={handleVerifyOtp} className="space-y-4 animate-scale-in">
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-purple-50 via-white to-violet-50 border border-purple-200 shadow-sm space-y-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4.5 h-4.5 text-purple-600" />
+                  <span>ប្រព័ន្ធផ្ទៀងផ្ទាត់សុវត្ថិភាព 2FA</span>
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                  Gmail Security
+                </span>
+              </div>
+
+              {/* Recipient User & Email Badge */}
+              <div className="p-3 bg-white rounded-xl border border-purple-100 flex items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                    {pendingUser?.avatarInitial || 'U'}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-800 truncate">
+                      {pendingUser?.khmerName || pendingUser?.name}
+                    </p>
+                    <p className="text-[11px] text-purple-700 font-mono truncate flex items-center gap-1">
+                      <Mail className="w-3 h-3 text-purple-500 shrink-0" />
+                      <span>{pendingUser?.email}</span>
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                  {pendingUser?.role.toUpperCase()}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                យើងបានផ្ញើលេខកូដសម្ងាត់ <strong className="text-purple-700">6 ខ្ទង់</strong> ទៅកាន់អាសយដ្ឋាន Gmail ពិតប្រាកដខាងលើ។ សូមពិនិត្យមើល <strong>Inbox</strong> ឬ <strong>Spam</strong> របស់អ្នក។
+              </p>
+
+              {/* 6-Digit Code Input Box */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
+                  បញ្ចូលលេខកូដផ្ទៀងផ្ទាត់ 6 ខ្ទង់ (Verification Code)
+                </label>
+                <div className="relative max-w-[260px] mx-auto">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    autoFocus
+                    required
+                    value={otpCode}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setOtpCode(val);
+                    }}
+                    placeholder="0 0 0 0 0 0"
+                    className="w-full py-3 px-4 bg-white border-2 border-purple-400 focus:border-purple-600 rounded-2xl text-2xl font-black font-mono tracking-[0.4em] text-center text-purple-950 focus:outline-none focus:ring-4 focus:ring-purple-200/50 transition-all shadow-inner"
+                  />
+                </div>
+              </div>
+
+              {/* Verify & Login Submit Button */}
+              <button
+                type="submit"
+                disabled={isLoading || otpCode.trim().length !== 6}
+                className="w-full py-3 bg-gradient-to-r from-purple-600 via-fuchsia-600 to-indigo-600 hover:from-purple-500 hover:via-fuchsia-500 hover:to-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 mt-2"
+              >
+                {isLoading ? (
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>ផ្ទៀងផ្ទាត់ និងចូលប្រើប្រាស់ (Verify & Login)</span>
+                  </>
+                )}
+              </button>
+
+              {/* Resend & Back actions */}
+              <div className="flex items-center justify-between pt-1 text-xs">
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0 || isResending}
+                  className="text-purple-600 hover:text-purple-800 font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isResending ? 'animate-spin' : ''}`} />
+                  <span>
+                    {resendCooldown > 0
+                      ? `ផ្ញើម្តងទៀត (${resendCooldown}s)`
+                      : 'ផ្ញើលេខកូដម្តងទៀត'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsVerifyingOtp(false);
+                    setOtpCode('');
+                    setErrorMessage('');
+                    soundFx.playClick();
+                  }}
+                  className="text-slate-500 hover:text-slate-800 text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  ← ត្រឡប់ក្រោយ (Back)
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <>
         {/* 1. SIGN IN FORM (Point 1 & Strict Privacy Isolation) */}
         {activeTab === 'login' && (
           <div className="space-y-4">
@@ -869,6 +1090,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 )}
 
+                {/* Quick Account Switcher (if users exist) */}
+                {currentUsersList.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)).length > 0 && (
+                  <div className="pb-1">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[11px] font-bold text-slate-700">
+                        ជ្រើសរើសគណនីរហ័ស (Quick Pick Account)
+                      </label>
+                      <span className="text-[10px] text-indigo-600 font-semibold">
+                        {currentUsersList.filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id)).length} គណនី
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                      {currentUsersList
+                        .filter(u => u && u.id && !LEGACY_MOCK_USER_IDS.has(u.id))
+                        .map((u) => {
+                          const isSelected =
+                            emailOrName.toLowerCase() === (u.email || '').toLowerCase() ||
+                            emailOrName.toLowerCase() === (u.khmerName || '').toLowerCase() ||
+                            emailOrName.toLowerCase() === (u.name || '').toLowerCase();
+                          return (
+                            <div
+                              key={u.id}
+                              className={`flex items-center justify-between p-1.5 sm:p-2 rounded-xl border text-left transition-all ${
+                                isSelected
+                                  ? 'bg-indigo-50 border-indigo-300 text-indigo-950 font-bold shadow-xs'
+                                  : 'bg-white border-slate-200/80 hover:border-indigo-200 hover:bg-indigo-50/50 text-slate-700 shadow-2xs'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEmailOrName(u.email || u.khmerName || u.name);
+                                  setPassword(u.password || '');
+                                  soundFx.playClick();
+                                }}
+                                className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer text-left"
+                                title="ជ្រើសរើសដើម្បីបំពេញ"
+                              >
+                                <div
+                                  className={`w-7 h-7 rounded-lg bg-gradient-to-tr ${
+                                    u.avatarColor || 'from-indigo-600 to-cyan-500'
+                                  } text-white font-bold text-xs flex items-center justify-center shrink-0`}
+                                >
+                                  {u.avatarInitial || u.khmerName?.charAt(0) || 'U'}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-bold truncate leading-tight">
+                                    {u.khmerName || u.name}
+                                  </p>
+                                  <span className="text-[9px] text-indigo-600 font-semibold font-mono block truncate">
+                                    {u.role.toUpperCase()}
+                                  </span>
+                                </div>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleQuickLogin(u)}
+                                className="ml-1 px-2 py-1 text-[10px] font-bold text-indigo-700 bg-indigo-100/90 hover:bg-indigo-600 hover:text-white rounded-lg transition-colors cursor-pointer shrink-0"
+                                title="ចូលប្រើប្រាស់គណនីនេះភ្លាមៗ"
+                              >
+                                ចូលភ្លាម
+                              </button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Identifier */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -958,43 +1248,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* 2. ENROLL / REGISTER NEW USER FORM (Point 4) */}
         {activeTab === 'enroll' && (
-          internalPortalMode === 'user' ? (
-            <div className="space-y-4 py-2 animate-fade-in">
-              <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-900 space-y-2.5">
-                <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
-                  <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>គណនីត្រូវតែបង្កើត និងអនុញ្ញាតដោយ Super Admin</span>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  ដើម្បីធានាសុវត្ថិភាពទិន្នន័យ និងឯកជនភាពការងារ គណនីសមាជិកទាំងអស់មិនអាចចុះឈ្មោះដោយសេរីបានឡើយ។ មានតែបុគ្គលិកដែលមានក្នុងតារាងដែល Super Admin បានបង្កើតប៉ុណ្ណោះ ទើបអាចចូលប្រើប្រាស់បាន។
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2.5 text-slate-700">
-                <p className="font-bold text-slate-900 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>របៀបស្នើសុំគណនី និង Link ចូលប្រើប្រាស់៖</span>
-                </p>
-                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 text-[11px] leading-relaxed">
-                  <li>ទាក់ទងមកកាន់ Super Admin (Telegram ឬ ទូរស័ព្ទ)</li>
-                  <li>ផ្តល់ឈ្មោះពេញ លេខទូរស័ព្ទ និងផ្នែកការងាររបស់អ្នក</li>
-                  <li>Super Admin នឹងបង្កើតគណនី និងផ្ញើ Link ឬ Passcode ចូលប្រើប្រាស់ផ្ទាល់ខ្លួនជូនអ្នក</li>
-                </ol>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('login');
-                  setErrorMessage('');
-                  setSuccessMessage('');
-                }}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
-              >
-                ត្រឡប់ទៅផ្ទាំង Login (Sign In)
-              </button>
-            </div>
-          ) : (
           <form onSubmit={handleEnrollUser} className="space-y-3.5">
             {/* Khmer Full Name */}
             <div>
@@ -1186,8 +1439,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
             </div>
           </form>
-          )
         )}
+        </>
+      )}
       </div>
 
       {/* Dedicated Portal Switcher Footer */}

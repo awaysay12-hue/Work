@@ -307,57 +307,23 @@ export const INITIAL_USERS: UserAccount[] = [
     bio: 'Super Admin - គ្រប់គ្រងប្រព័ន្ធ និងកិច្ចការទូទៅរបស់ក្រុមហ៊ុន',
     status: 'active',
     joinedDate: '2025-01-10',
+    verifiedInDatabase: true,
   },
   {
-    id: 'user-manager-1',
-    name: 'Sokha (Manager)',
-    khmerName: 'សុខា (Manager)',
-    email: 'sokha@taskmate.kh',
-    password: 'manager123',
-    phone: '012 111 222',
-    role: 'manager',
-    department: 'គ្រប់គ្រងទូទៅ',
-    avatarColor: 'from-amber-500 to-orange-600',
-    avatarInitial: 'ស',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-    visibilityScope: 'department',
-    bio: 'ប្រធានផ្នែក - ត្រួតពិនិត្យ និងចាត់តាំងការងារក្នុងផ្នែក',
-    status: 'active',
-    joinedDate: '2025-01-12',
-  },
-  {
-    id: 'user-member-1',
-    name: 'Bopha (Member)',
-    khmerName: 'បុប្ផា (Member)',
-    email: 'bopha@taskmate.kh',
-    password: 'member123',
-    phone: '012 333 444',
+    id: 'user-1788095980423',
+    name: 'Ranuth',
+    khmerName: 'រ៉ានុត',
+    email: 'bunthasoranuth168@gmail.com',
+    password: 'Ranuth123',
+    phone: '077777777',
+    department: 'បច្ចេកវិទ្យា & IT',
     role: 'member',
-    department: 'រចនា & Design',
-    avatarColor: 'from-emerald-500 to-teal-600',
-    avatarInitial: 'ប',
-    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
     visibilityScope: 'assigned_only',
-    bio: 'សមាជិក - បំពេញ និងគ្រប់គ្រងកិច្ចការដែលបានចាត់តាំង',
+    avatarColor: 'from-pink-500 to-rose-600',
+    avatarInitial: 'រ',
     status: 'active',
-    joinedDate: '2025-01-15',
-  },
-  {
-    id: 'user-viewer-1',
-    name: 'Dara (Viewer)',
-    khmerName: 'តារា (Viewer)',
-    email: 'dara@taskmate.kh',
-    password: 'viewer123',
-    phone: '012 555 666',
-    role: 'viewer',
-    department: 'ទីផ្សារ & Marketing',
-    avatarColor: 'from-slate-500 to-zinc-600',
-    avatarInitial: 'ត',
-    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
-    visibilityScope: 'assigned_only',
-    bio: 'អ្នកមើល / ភ្ញៀវ - តាមដានវឌ្ឍនភាពកិច្ចការ',
-    status: 'active',
-    joinedDate: '2025-01-18',
+    joinedDate: '2026-08-30',
+    verifiedInDatabase: true,
   },
 ];
 
@@ -440,6 +406,11 @@ export function canUserViewTask(
     const userDept = (currentUser.department || '').trim().toLowerCase();
     if (!userDept) return true;
 
+    // Check if task directly has department field matching userDept
+    if (task.department && (task.department || '').trim().toLowerCase() === userDept) {
+      return true;
+    }
+
     // Check if task assignee or creator belongs to the same department
     if (taskAssigneeUser && (taskAssigneeUser.department || '').trim().toLowerCase() === userDept) {
       return true;
@@ -516,7 +487,7 @@ export function formatActionLabel(action: ActivityLog['action']): { text: string
   }
 }
 
-export interface DemoCredential {
+export interface SystemUserProfile {
   role: UserRole;
   email: string;
   password: string;
@@ -528,7 +499,7 @@ export interface DemoCredential {
   avatarInitial: string;
 }
 
-export const DEMO_LOGIN_ACCOUNTS: DemoCredential[] = [
+export const REAL_USER_PROFILES: SystemUserProfile[] = [
   {
     role: 'admin',
     email: 'sunpunleu168@gmail.com',
@@ -541,41 +512,27 @@ export const DEMO_LOGIN_ACCOUNTS: DemoCredential[] = [
     avatarInitial: 'ព',
   },
   {
-    role: 'manager',
-    email: 'sokha@taskmate.kh',
-    password: 'manager123',
-    nameKh: 'សុខា (Manager)',
-    nameEn: 'Sokha (Manager)',
-    roleTitleKh: 'ប្រធានផ្នែក (Department Manager)',
-    descriptionKh: 'គ្រប់គ្រង និងចាត់តាំងការងារក្នុងផ្នែក',
-    avatarColor: 'from-amber-500 to-orange-600',
-    avatarInitial: 'ស',
-  },
-  {
     role: 'member',
-    email: 'bopha@taskmate.kh',
-    password: 'member123',
-    nameKh: 'បុប្ផា (Member)',
-    nameEn: 'Bopha (Member)',
-    roleTitleKh: 'សមាជិកប្រតិបត្តិ (Team Member)',
+    email: 'bunthasoranuth168@gmail.com',
+    password: 'Ranuth123',
+    nameKh: 'រ៉ានុត (Member)',
+    nameEn: 'Ranuth',
+    roleTitleKh: 'សមាជិកបច្ចេកវិទ្យា & IT (Member)',
     descriptionKh: 'បំពេញ និងកែប្រែកិច្ចការដែលបានទទួល',
-    avatarColor: 'from-emerald-500 to-teal-600',
-    avatarInitial: 'ប',
-  },
-  {
-    role: 'viewer',
-    email: 'dara@taskmate.kh',
-    password: 'viewer123',
-    nameKh: 'តារា (Viewer)',
-    nameEn: 'Dara (Viewer)',
-    roleTitleKh: 'អ្នកតាមដាន / ភ្ញៀវ (Viewer)',
-    descriptionKh: 'មើល និងតាមដានវឌ្ឍនភាពកិច្ចការ',
-    avatarColor: 'from-slate-500 to-zinc-600',
-    avatarInitial: 'ត',
+    avatarColor: 'from-pink-500 to-rose-600',
+    avatarInitial: 'រ',
   },
 ];
 
+export const SYSTEM_USER_PROFILES = REAL_USER_PROFILES;
+
 export const LEGACY_MOCK_USER_IDS = new Set([
+  'user-manager-1',
+  'user-member-1',
+  'user-viewer-1',
+  'sokha@taskmate.kh',
+  'bopha@taskmate.kh',
+  'dara@taskmate.kh',
   'user-mgr-1',
   'user-mem-1',
   'user-mem-2',

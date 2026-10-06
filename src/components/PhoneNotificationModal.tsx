@@ -99,16 +99,16 @@ export const PhoneNotificationModal: React.FC<PhoneNotificationModalProps> = ({
 
     soundFx.playReminderChime();
     await sendBrowserNotification(
-      '🔔 សាកល្បង Notification លើទូរស័ព្ទ',
+      '🔔 ផ្ទៀងផ្ទាត់ Notification លើទូរស័ព្ទ',
       'ប្រព័ន្ធរំលឹកកិច្ចការកំពុងដំណើរការយ៉ាងល្អ! សំឡេង និងរំញ័រត្រូវបានបើក។ ⚡',
       undefined,
       {
-        tag: 'test-notify-' + Date.now(),
+        tag: 'notify-' + Date.now(),
         vibrate: [300, 150, 300, 150, 300],
         requireInteraction: true,
       }
     );
-    setSuccessMsg('បានបញ្ជូន Notification សាកល្បងភ្លាមៗរួចរាល់!');
+    setSuccessMsg('បានបញ្ជូន Notification ផ្ទៀងផ្ទាត់ភ្លាមៗរួចរាល់!');
   };
 
   const handleLockScreenCountdownTest = async () => {
@@ -225,7 +225,7 @@ export const PhoneNotificationModal: React.FC<PhoneNotificationModalProps> = ({
           {/* Testing Action Cards */}
           <div className="space-y-3">
             <span className="text-xs font-bold text-slate-700 block">
-              សាកល្បងដំណើរការ Notification (Interactive Testing)
+              ផ្ទៀងផ្ទាត់ដំណើរការ Notification (Device Verification)
             </span>
 
             {/* Test 1: Countdown for Lock Screen */}
@@ -235,7 +235,7 @@ export const PhoneNotificationModal: React.FC<PhoneNotificationModalProps> = ({
                   <div className="flex items-center gap-2">
                     <Lock className="w-4 h-4 text-amber-400" />
                     <span className="text-xs font-bold text-white">
-                      តេស្តលើ Lock Screen (រាប់ថយក្រោយ ៥ វិនាទី)
+                      ផ្ទៀងផ្ទាត់លើ Lock Screen (រាប់ថយក្រោយ ៥ វិនាទី)
                     </span>
                   </div>
                   <p className="text-[11px] text-indigo-200/80 mt-1">
@@ -257,7 +257,7 @@ export const PhoneNotificationModal: React.FC<PhoneNotificationModalProps> = ({
                   ) : (
                     <>
                       <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>តេស្ត Lock Screen</span>
+                      <span>ផ្ទៀងផ្ទាត់ Lock Screen</span>
                     </>
                   )}
                 </button>
@@ -278,8 +278,8 @@ export const PhoneNotificationModal: React.FC<PhoneNotificationModalProps> = ({
               <div className="flex items-center gap-2.5">
                 <Bell className="w-4 h-4 text-indigo-600 shrink-0" />
                 <div className="text-xs">
-                  <span className="font-bold text-slate-800 block">សាកល្បង Notification ភ្លាមៗ</span>
-                  <span className="text-[11px] text-slate-500">តេស្តសំឡេង Chime និងរំញ័រ</span>
+                  <span className="font-bold text-slate-800 block">ផ្ទៀងផ្ទាត់ Notification ភ្លាមៗ</span>
+                  <span className="text-[11px] text-slate-500">សាកល្បងសំឡេង Chime និងរំញ័រ</span>
                 </div>
               </div>
 

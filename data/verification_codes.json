@@ -1,0 +1,11 @@
+[
+  {
+    "email": "sunpunleu168@gmail.com",
+    "code": "357620",
+    "purpose": "login",
+    "createdAt": 1790700772061,
+    "expiresAt": 1790701372061,
+    "verified": false,
+    "failedAttempts": 1
+  }
+]

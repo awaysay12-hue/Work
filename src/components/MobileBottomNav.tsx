@@ -42,15 +42,15 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           onClick={() => onNavigate('today')}
           className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all relative ${
             currentView === 'today'
-              ? 'text-indigo-600 font-bold scale-105'
-              : 'text-slate-500 hover:text-slate-800'
+              ? 'text-purple-600 dark:text-purple-400 font-bold scale-105'
+              : 'text-slate-500 hover:text-purple-700 dark:text-slate-400 dark:hover:text-purple-300'
           }`}
           aria-label="Dashboard"
         >
           <div className="relative">
             <LayoutDashboard className={`w-5 h-5 ${currentView === 'today' ? 'stroke-[2.5]' : 'stroke-2'}`} />
             {todayCount > 0 && (
-              <span className="absolute -top-1.5 -right-2 bg-indigo-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center border border-white">
+              <span className="absolute -top-1.5 -right-2 bg-purple-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center border border-white">
                 {toKhmerNumber(todayCount)}
               </span>
             )}
@@ -63,8 +63,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           onClick={() => onNavigate('all')}
           className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all relative ${
             currentView === 'all'
-              ? 'text-indigo-600 font-bold scale-105'
-              : 'text-slate-500 hover:text-slate-800'
+              ? 'text-purple-600 dark:text-purple-400 font-bold scale-105'
+              : 'text-slate-500 hover:text-purple-700 dark:text-slate-400 dark:hover:text-purple-300'
           }`}
           aria-label="Tasks"
         >
@@ -85,7 +85,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             <button
               onClick={onOpenNewTask}
               id="mobile-fab-add-task"
-              className="w-12 h-12 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-500/40 hover:scale-105 active:scale-95 transition-all border-2 border-white ring-2 ring-indigo-500/20"
+              className="w-12 h-12 rounded-full bg-gradient-to-tr from-purple-600 via-fuchsia-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/40 hover:scale-105 active:scale-95 transition-all border-2 border-white ring-2 ring-purple-500/25"
               aria-label="Add Task"
               title="បន្ថែមការងារថ្មី"
             >
@@ -99,8 +99,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           onClick={() => onNavigate('calendar')}
           className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all relative ${
             currentView === 'calendar'
-              ? 'text-indigo-600 font-bold scale-105'
-              : 'text-slate-500 hover:text-slate-800'
+              ? 'text-purple-600 dark:text-purple-400 font-bold scale-105'
+              : 'text-slate-500 hover:text-purple-700 dark:text-slate-400 dark:hover:text-purple-300'
           }`}
           aria-label="Calendar"
         >
@@ -113,8 +113,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           onClick={() => onNavigate('analytics')}
           className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all relative ${
             currentView === 'analytics'
-              ? 'text-indigo-600 font-bold scale-105'
-              : 'text-slate-500 hover:text-slate-800'
+              ? 'text-purple-600 dark:text-purple-400 font-bold scale-105'
+              : 'text-slate-500 hover:text-purple-700 dark:text-slate-400 dark:hover:text-purple-300'
           }`}
           aria-label="Analytics"
         >
@@ -125,11 +125,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         {/* 6. Mobile Side Menu Toggle */}
         <button
           onClick={onOpenMobileMenu}
-          className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 active:scale-95 transition-all"
+          className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-purple-700 dark:text-purple-300 hover:text-purple-900 active:scale-95 transition-all"
           aria-label="More Menu"
         >
-          <Menu className="w-5 h-5 stroke-2" />
-          <span className="text-[10px] mt-0.5 whitespace-nowrap">មីនុយ</span>
+          <Menu className="w-5 h-5 stroke-2 text-purple-600 dark:text-purple-400" />
+          <span className="text-[10px] mt-0.5 whitespace-nowrap font-bold">មីនុយ</span>
         </button>
       </div>
     </nav>

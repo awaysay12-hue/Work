@@ -106,6 +106,8 @@ export function taskToDbRow(task: Task) {
     assignee_name: task.assigneeName || null,
     creator_id: task.creatorId || null,
     creator_name: task.creatorName || null,
+    archived: Boolean(task.archived),
+    archived_at: task.archivedAt || null,
   };
 }
 
@@ -133,6 +135,8 @@ export function dbRowToTask(row: any): Task {
     assigneeName: row.assignee_name || undefined,
     creatorId: row.creator_id || undefined,
     creatorName: row.creator_name || undefined,
+    archived: Boolean(row.archived),
+    archivedAt: row.archived_at || undefined,
   };
 }
 
@@ -321,45 +325,17 @@ export async function verifyUserWithSupabaseDatabase(
     return { success: false, message: 'សូមបញ្ចូលអ៊ីមែល ឬឈ្មោះគណនីរបស់អ្នក' };
   }
 
-  // Local candidate pool from INITIAL_USERS + localStorage for fast & resilient fallback
-  const getLocalPool = (): UserAccount[] => {
-    const pool: UserAccount[] = [];
-    const seen = new Set<string>();
-    try {
-      const raw = localStorage.getItem('kh_daily_users_data_v1') || localStorage.getItem('taskmate_users');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((u: any) => {
-            if (u && u.id && !seen.has(u.id)) {
-              seen.add(u.id);
-              pool.push(u);
-            }
-          });
-        }
-      }
-    } catch {
-      // Ignore
-    }
-    INITIAL_USERS.forEach((u) => {
-      if (u && u.id && !seen.has(u.id)) {
-        seen.add(u.id);
-        pool.push(u);
-      }
-    });
-    return pool;
-  };
-
   const verifyAgainstUsersList = (allUsers: UserAccount[]): { success: boolean; user?: UserAccount; message?: string } => {
     // 1st Priority: Exact Email match
     let matchedUser = allUsers.find(
-      (u) => u.email && u.email.trim().toLowerCase() === cleanId
+      (u) => u && u.email && u.email.trim().toLowerCase() === cleanId
     );
 
     // 2nd Priority: Username before @
     if (!matchedUser) {
       matchedUser = allUsers.find(
         (u) =>
+          u &&
           u.email &&
           u.email.split('@')[0].trim().toLowerCase() === cleanId
       );
@@ -369,8 +345,9 @@ export async function verifyUserWithSupabaseDatabase(
     if (!matchedUser) {
       matchedUser = allUsers.find(
         (u) =>
-          (u.name && u.name.trim().toLowerCase() === cleanId) ||
-          (u.khmerName && u.khmerName.trim().toLowerCase() === cleanId)
+          u &&
+          ((u.name && u.name.trim().toLowerCase() === cleanId) ||
+           (u.khmerName && u.khmerName.trim().toLowerCase() === cleanId))
       );
     }
 
@@ -379,7 +356,7 @@ export async function verifyUserWithSupabaseDatabase(
       const rawDigits = cleanId.replace(/\D/g, '');
       if (rawDigits.length >= 4) {
         matchedUser = allUsers.find((u) => {
-          if (!u.phone) return false;
+          if (!u || !u.phone) return false;
           const uDigits = u.phone.replace(/\D/g, '');
           return uDigits && (uDigits === rawDigits || uDigits.endsWith(rawDigits));
         });
@@ -388,7 +365,7 @@ export async function verifyUserWithSupabaseDatabase(
 
     // 5th Priority: ID match
     if (!matchedUser) {
-      matchedUser = allUsers.find((u) => u.id && u.id.trim().toLowerCase() === cleanId);
+      matchedUser = allUsers.find((u) => u && u.id && u.id.trim().toLowerCase() === cleanId);
     }
 
     if (!matchedUser) {
@@ -427,36 +404,64 @@ export async function verifyUserWithSupabaseDatabase(
     return { success: true, user: matchedUser };
   };
 
-  // 1. Direct Real-Time Query against Supabase Database 'users' Table
+  // 1. Gather all users into a unified map (Supabase + Server API + Local Storage + INITIAL_USERS)
+  const userMap = new Map<string, UserAccount>();
+
+  // Baseline INITIAL_USERS
+  INITIAL_USERS.forEach((u) => {
+    if (u && u.id) userMap.set(u.id, u);
+  });
+
+  // Local Storage Users
+  try {
+    const rawLocal1 = localStorage.getItem('kh_daily_users_data_v1');
+    const rawLocal2 = localStorage.getItem('taskmate_users');
+    const raw = rawLocal1 || rawLocal2;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((u: any) => {
+          if (u && u.id) userMap.set(u.id, u);
+        });
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Central Server API (/api/users)
+  try {
+    const res = await fetch('/api/users', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.users)) {
+        data.users.forEach((u: any) => {
+          if (u && u.id) userMap.set(u.id, u);
+        });
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Real-time Supabase Database
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*');
-
+      const { data, error } = await supabase.from('users').select('*');
       if (!error && Array.isArray(data) && data.length > 0) {
-        const cloudUsers = data.map(dbRowToUser);
-        const cloudResult = verifyAgainstUsersList(cloudUsers);
-        if (cloudResult.success) {
-          return { success: true, user: cloudResult.user };
-        }
+        data.forEach((row) => {
+          const u = dbRowToUser(row);
+          if (u && u.id) userMap.set(u.id, u);
+        });
       }
     } catch {
-      // Graceful fallback to local verified list only if network is offline
+      // Ignore
     }
   }
 
-  // 2. Offline / Local Whitelist fallback (Only for real registered accounts)
-  const localUsers = getLocalPool();
-  const localResult = verifyAgainstUsersList(localUsers);
-  if (localResult.success) {
-    return { success: true, user: localResult.user, isOfflineFallback: true };
-  }
-
-  return {
-    success: false,
-    message: localResult.message || '❌ គណនី ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវទេ! សូមពិនិត្យម្តងទៀត',
-  };
+  const allUsers = Array.from(userMap.values());
+  const result = verifyAgainstUsersList(allUsers);
+  return result;
 }
 
 

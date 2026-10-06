@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Kantumruy Pro', 'Noto Sans Khmer', 'Khmer OS Battambang', 'Battambang', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-khmer: 'Kantumruy Pro', 'Noto Sans Khmer', 'Khmer OS Battambang', 'Battambang', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -29,6 +31,213 @@ body,
   line-height: 1.6;
   letter-spacing: normal !important;
   scroll-behavior: smooth;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Dark Mode Root Styles */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark,
+html.dark body,
+html.dark #root {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+}
+
+/* Dark Theme Surface & Text Adaptations */
+html.dark .bg-white {
+  background-color: #111827 !important;
+  border-color: #1f293d !important;
+  color: #f1f5f9;
+}
+
+html.dark .bg-slate-50 {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #131c31 !important;
+}
+
+html.dark .hover\:bg-slate-50:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .hover\:bg-slate-100:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .border-slate-200,
+html.dark .border-slate-100 {
+  border-color: #1e293b !important;
+}
+
+html.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-50 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b !important;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: #f1f5f9 !important;
+}
+
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-slate-400 {
+  color: #64748b !important;
+}
+
+/* Fix high-contrast/unreadable colored text in dark mode */
+html.dark .text-indigo-600 {
+  color: #818cf8 !important;
+}
+
+html.dark .text-indigo-700,
+html.dark .text-indigo-800,
+html.dark .text-indigo-900 {
+  color: #a5b4fc !important;
+}
+
+html.dark .text-sky-600 {
+  color: #38bdf8 !important;
+}
+
+html.dark .text-emerald-500,
+html.dark .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+html.dark .text-rose-500,
+html.dark .text-rose-600 {
+  color: #fb7185 !important;
+}
+
+html.dark .text-amber-500,
+html.dark .text-amber-600,
+html.dark .text-amber-700 {
+  color: #fbbf24 !important;
+}
+
+/* Prevent bright pastel backgrounds from blinding the user in Dark Mode */
+html.dark .bg-indigo-50,
+html.dark .bg-indigo-100 {
+  background-color: rgba(49, 46, 129, 0.4) !important;
+  color: #c7d2fe !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-100 {
+  background-color: rgba(6, 78, 59, 0.4) !important;
+  color: #a7f3d0 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+html.dark .bg-rose-50,
+html.dark .bg-rose-100 {
+  background-color: rgba(76, 5, 25, 0.4) !important;
+  color: #fecdd3 !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+html.dark .bg-amber-50,
+html.dark .bg-amber-100,
+html.dark .bg-amber-50\/60 {
+  background-color: rgba(69, 26, 3, 0.4) !important;
+  color: #fde68a !important;
+  border-color: rgba(217, 119, 6, 0.3) !important;
+}
+
+html.dark .bg-sky-50,
+html.dark .bg-blue-50 {
+  background-color: rgba(12, 74, 110, 0.4) !important;
+  color: #bae6fd !important;
+  border-color: rgba(14, 165, 233, 0.3) !important;
+}
+
+/* Gradient ribbons & highlights in Dark Mode */
+html.dark .from-indigo-50,
+html.dark .via-slate-50,
+html.dark .to-indigo-50\/60,
+html.dark .to-indigo-100\/80 {
+  --tw-gradient-from: #111827 !important;
+  --tw-gradient-via: #141c2e !important;
+  --tw-gradient-to: #111827 !important;
+}
+
+/* Dark form inputs */
+html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]),
+html.dark select,
+html.dark textarea {
+  background-color: #162032 !important;
+  border-color: #27354f !important;
+  color: #f8fafc !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Protect logo containers and explicit colored badges from unwanted overrides */
+html.dark .bg-white.keep-light,
+html.dark img[alt="Logo"] {
+  background-color: #ffffff !important;
+}
+
+/* Dark table styles */
+html.dark th {
+  background-color: #131b2e !important;
+  color: #94a3b8 !important;
+}
+
+html.dark td {
+  border-color: #1e293b !important;
+}
+
+html.dark tr:hover td {
+  background-color: #172033 !important;
+}
+
+/* Dark Modal backdrops */
+html.dark .bg-slate-900\/60,
+html.dark .bg-slate-900\/50,
+html.dark .bg-black\/50 {
+  background-color: rgba(3, 7, 18, 0.75) !important;
+}
+
+/* Dark subtle badges & buttons */
+html.dark .bg-slate-200 {
+  background-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Dark card hover shadows */
+html.dark .card-hover-effect:hover {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3) !important;
+}
+
+@keyframes pulseRedRowDark {
+  0%, 100% {
+    background-color: rgba(225, 29, 72, 0.15);
+    box-shadow: inset 4px 0 0 0 #f43f5e;
+  }
+  50% {
+    background-color: rgba(225, 29, 72, 0.28);
+    box-shadow: inset 4px 0 0 0 #fb7185, 0 0 12px rgba(244, 63, 94, 0.3);
+  }
+}
+
+html.dark .animate-pulse-row-red {
+  animation: pulseRedRowDark 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 button,
@@ -55,6 +264,13 @@ textarea {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 /* Subtle, Polished Webpage Micro-animations */
@@ -151,6 +367,68 @@ textarea {
 
 .animate-pulse-badge-red {
   animation: pulseBadgeRed 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Colorful Animation Suites */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes floatGently {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes shimmerSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+@keyframes popBounce {
+  0% { transform: scale(0.92); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.7));
+  }
+}
+
+.animate-gradient-shift {
+  background-size: 200% 200%;
+  animation: gradientShift 6s ease infinite;
+}
+
+.animate-float-gently {
+  animation: floatGently 3s ease-in-out infinite;
+}
+
+.animate-shimmer-slide {
+  animation: shimmerSlide 2.5s infinite;
+}
+
+.animate-pop-bounce {
+  animation: popBounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 2.5s ease-in-out infinite;
+}
+
+/* Card Colorful Hover Effect with Dynamic Gradient Glow */
+.card-colorful-hover {
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-colorful-hover:hover {
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 12px 28px -6px rgba(99, 102, 241, 0.15), 0 6px 12px -4px rgba(168, 85, 247, 0.1);
 }
 
 

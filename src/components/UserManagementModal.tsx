@@ -55,6 +55,7 @@ import { formatKhmerDate, formatKhmerTime } from '../utils/khmerDates';
 import { UserAvatar } from './UserAvatar';
 import { soundFx } from '../utils/sound';
 import { validateAndNormalizeGmail } from '../utils/gmailValidator';
+import { serverApi } from '../lib/serverApi';
 
 interface UserManagementModalProps {
   isOpen: boolean;
@@ -296,8 +297,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       } else if (onAddUser) {
         onAddUser(newUserObj);
       }
+
+      // Automatically dispatch verification / activation code to the new user's real Gmail
+      serverApi.sendVerificationCode(cleanEmail, 'creation', newUserObj.id).catch(() => {});
+
       soundFx.playCelebration();
-      showNotification(`បានបង្កើតគណនីថ្មី ${formKhmerName} (${ROLE_CONFIGS[formRole].titleKh}) ជោគជ័យ`);
+      showNotification(`បានបង្កើតគណនី ${formKhmerName} និងបានបញ្ជូនលេខកូដ Verify ទៅកាន់ Gmail (${cleanEmail})`);
     }
 
     setIsFormOpen(false);

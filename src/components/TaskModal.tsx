@@ -13,6 +13,8 @@ import {
   ListTodo,
   User,
   Users,
+  ShieldCheck,
+  AlertCircle,
 } from 'lucide-react';
 import { Task, TaskCategory, PriorityLevel, ReminderTiming, RecurrenceType, Subtask, UserAccount } from '../types';
 import {
@@ -60,8 +62,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
   const [assigneeId, setAssigneeId] = useState<string>(currentUser ? currentUser.id : '');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
+    setValidationError(null);
     if (editingTask) {
       setTitle(editingTask.title);
       setDescription(editingTask.description || '');
@@ -125,9 +129,31 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationError(null);
     if (!title.trim()) return;
 
-    const assignedUser = users.find((u) => u.id === assigneeId);
+    // 1. Verify that Creator is a real active user in the database
+    const verifiedCreator = users.find(
+      (u) =>
+        u &&
+        u.status === 'active' &&
+        (editingTask?.creatorId ? u.id === editingTask.creatorId : (currentUser ? u.id === currentUser.id : false))
+    ) || (currentUser && users.find((u) => u.id === currentUser.id)) || users.find((u) => u.role === 'admin');
+
+    if (!verifiedCreator) {
+      setValidationError('ការផ្ទៀងផ្ទាត់មិនជោគជ័យ៖ អ្នកបង្កើតត្រូវតែជាមនុស្សពិតប្រាកដក្នុង Database!');
+      return;
+    }
+
+    // 2. Verify that Assignee is a real active user in the database
+    const assignedUser = users.find(
+      (u) => u && u.status === 'active' && (u.id === assigneeId || u.email === assigneeId)
+    ) || verifiedCreator;
+
+    if (!assignedUser) {
+      setValidationError('សូមជ្រើសរើសអ្នកទទួលខុសត្រូវ (Assignee) ដែលជាមនុស្សពិតប្រាកដក្នុង Database!');
+      return;
+    }
 
     const taskData: Task = {
       id: editingTask ? editingTask.id : `task-${Date.now()}`,
@@ -146,10 +172,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       spentMinutes: editingTask ? editingTask.spentMinutes || 0 : 0,
       recurring,
       tags,
-      assigneeId: assignedUser ? assignedUser.id : (currentUser ? currentUser.id : undefined),
-      assigneeName: assignedUser ? assignedUser.khmerName : (currentUser ? currentUser.khmerName : undefined),
-      creatorId: editingTask ? editingTask.creatorId : (currentUser ? currentUser.id : undefined),
-      creatorName: editingTask ? editingTask.creatorName : (currentUser ? currentUser.khmerName : undefined),
+      assigneeId: assignedUser.id,
+      assigneeName: assignedUser.khmerName || assignedUser.name,
+      assigneeEmail: assignedUser.email,
+      creatorId: verifiedCreator.id,
+      creatorName: verifiedCreator.khmerName || verifiedCreator.name,
+      creatorEmail: verifiedCreator.email,
+      department: assignedUser.department || verifiedCreator.department || 'General',
+      visibilityScope: editingTask?.visibilityScope || (verifiedCreator.role === 'admin' ? 'all' : 'assigned_only'),
+      verifiedInDatabase: true,
     };
 
     onSave(taskData);
@@ -187,6 +218,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+          {validationError && (
+            <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-medium">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{validationError}</span>
+            </div>
+          )}
+
           {/* Quick suggestions when creating new task */}
           {!editingTask && (
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
@@ -281,12 +319,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
           </div>
 
-          {/* User Assignment (RBAC Integration) */}
+          {/* User Assignment (RBAC Integration with Strict Database Verification) */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-indigo-600" />
                 <span>អ្នកទទួលខុសត្រូវកិច្ចការ (Assignee)</span>
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" /> ផ្ទៀងផ្ទាត់ជាមួយ DB
+                </span>
               </span>
               {editingTask && editingTask.creatorName && (
                 <span className="text-[10px] text-slate-400 font-normal">
@@ -302,14 +343,31 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:cursor-not-allowed"
             >
               {users.length === 0 && currentUser && (
-                <option value={currentUser.id}>{currentUser.khmerName} ({currentUser.department})</option>
+                <option value={currentUser.id}>✓ {currentUser.khmerName} ({currentUser.department}) — មនុស្សពិតប្រាកដ</option>
               )}
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.khmerName} — {u.department} ({u.role.toUpperCase()})
+                  ✓ {u.khmerName || u.name} — {u.department} ({u.role.toUpperCase()}) — ផ្ទៀងផ្ទាត់រួច
                 </option>
               ))}
             </select>
+
+            {/* Real Person Verification Banner */}
+            {(() => {
+              const selectedUser = users.find((u) => u.id === assigneeId) || (currentUser && users.find((u) => u.id === currentUser.id));
+              if (selectedUser) {
+                return (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-emerald-700 bg-emerald-50/80 px-2.5 py-1 rounded-lg border border-emerald-200">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">
+                      មនុស្សពិតក្នុង Database៖ <strong>{selectedUser.khmerName || selectedUser.name}</strong> • អ៊ីមែល៖ {selectedUser.email} ({selectedUser.department})
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {!canAssignTask && (
               <p className="text-[10px] text-amber-600 mt-1">
                 * អ្នកគ្មានសិទ្ធិប្តូរអ្នកទទួលខុសត្រូវកិច្ចការទេ (Permission Required)

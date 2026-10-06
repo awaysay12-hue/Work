@@ -1,0 +1,35 @@
+[
+  {
+    "id": "user-admin-1",
+    "name": "PUNLEU (Admin)",
+    "khmerName": "ពន្លឺ (Super Admin)",
+    "email": "sunpunleu168@gmail.com",
+    "password": "123",
+    "phone": "012 000 000",
+    "role": "admin",
+    "department": "បច្ចេកវិទ្យា & IT",
+    "visibilityScope": "all",
+    "avatarColor": "from-rose-500 to-indigo-600",
+    "avatarInitial": "ព",
+    "avatarUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
+    "status": "active",
+    "joinedDate": "2025-01-10",
+    "verifiedInDatabase": true
+  },
+  {
+    "id": "user-1788095980423",
+    "name": "Ranuth",
+    "khmerName": "រ៉ានុត",
+    "email": "bunthasoranuth168@gmail.com",
+    "password": "Ranuth123",
+    "phone": "077777777",
+    "department": "បច្ចេកវិទ្យា & IT",
+    "role": "member",
+    "visibilityScope": "assigned_only",
+    "avatarColor": "from-pink-500 to-rose-600",
+    "avatarInitial": "រ",
+    "status": "active",
+    "joinedDate": "2026-08-30",
+    "verifiedInDatabase": true
+  }
+]

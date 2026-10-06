@@ -17,10 +17,9 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({ onAddTask, currentUser
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || !currentUser) return;
 
     const todayStr = getTodayDateString();
-    const isRegularMember = currentUser?.role === 'member' || currentUser?.role === 'viewer';
 
     const newTask: Task = {
       id: `task-${Date.now()}`,
@@ -37,10 +36,15 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({ onAddTask, currentUser
       tags: [],
       estimatedMinutes: 25,
       spentMinutes: 0,
-      creatorId: currentUser ? currentUser.id : undefined,
-      creatorName: currentUser ? (currentUser.khmerName || currentUser.name) : undefined,
-      assigneeId: isRegularMember && currentUser ? currentUser.id : undefined,
-      assigneeName: isRegularMember && currentUser ? (currentUser.khmerName || currentUser.name) : undefined,
+      creatorId: currentUser.id,
+      creatorName: currentUser.khmerName || currentUser.name,
+      creatorEmail: currentUser.email,
+      assigneeId: currentUser.id,
+      assigneeName: currentUser.khmerName || currentUser.name,
+      assigneeEmail: currentUser.email,
+      department: currentUser.department || 'General',
+      visibilityScope: currentUser.role === 'admin' ? 'all' : 'assigned_only',
+      verifiedInDatabase: true,
     };
 
     soundFx.playClick();
@@ -51,11 +55,17 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({ onAddTask, currentUser
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-white rounded-xl border border-slate-200 p-2 sm:p-2.5 shadow-xs hover:border-slate-300 transition-all focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500"
+      className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-2 sm:p-2.5 shadow-xs hover:border-purple-300 dark:hover:border-purple-700/60 transition-all duration-300 focus-within:ring-2 focus-within:ring-purple-500/30 focus-within:border-purple-500"
     >
       <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 ml-1">
-          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+        <div
+          className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ml-0.5 transition-all duration-300 ${
+            title.trim()
+              ? 'bg-gradient-to-tr from-indigo-600 to-purple-600 text-white shadow-xs scale-105 animate-pulse'
+              : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+          }`}
+        >
+          <Plus className="w-4 h-4 stroke-[2.5]" />
         </div>
 
         <input
@@ -64,14 +74,14 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({ onAddTask, currentUser
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="បន្ថែមការងារថ្មីរហ័សសម្រាប់ថ្ងៃនេះ..."
-          className="flex-1 text-xs bg-transparent border-none focus:outline-none placeholder-slate-400 font-medium text-slate-800"
+          className="flex-1 text-xs sm:text-sm bg-transparent border-none focus:outline-none placeholder-slate-400 dark:placeholder-slate-500 font-medium text-slate-800 dark:text-slate-100"
         />
 
-        <div className="flex items-center space-x-1.5 shrink-0">
+        <div className="flex items-center space-x-2 shrink-0">
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as TaskCategory)}
-            className="hidden sm:block text-[11px] bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-slate-600 focus:outline-none"
+            className="hidden sm:block text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none font-semibold cursor-pointer hover:border-indigo-300 transition-colors"
           >
             {Object.values(CATEGORIES_CONFIG).map((c) => (
               <option key={c.id} value={c.id}>
@@ -83,10 +93,10 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({ onAddTask, currentUser
           <button
             type="submit"
             disabled={!title.trim()}
-            className={`px-3 py-1 rounded-md font-bold text-xs transition-all ${
+            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all duration-200 ${
               title.trim()
-                ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs cursor-pointer'
-                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white shadow-sm hover:shadow-purple-500/25 hover:scale-105 active:scale-95 cursor-pointer'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
             }`}
           >
             + បន្ថែម

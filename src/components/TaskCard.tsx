@@ -16,6 +16,8 @@ import {
   User,
   AlertTriangle,
   AlertCircle,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react';
 import { Task } from '../types';
 import {
@@ -34,6 +36,7 @@ interface TaskCardProps {
   onEdit: (task: Task) => void;
   onDelete: (taskId: string) => void;
   onStartFocusTimer: (task: Task) => void;
+  onToggleArchive?: (task: Task) => void;
   isTableRow?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
@@ -47,6 +50,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onEdit,
   onDelete,
   onStartFocusTimer,
+  onToggleArchive,
   isTableRow = true,
   canEdit = true,
   canDelete = true,
@@ -65,12 +69,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const totalSubtasks = subtaskList.length;
   const completedSubtasks = subtaskList.filter((s) => s.completed).length;
 
-  // High Density Priority Badge Classes
-  let priorityBadgeClass = 'bg-slate-100 text-slate-600';
+  // High Density Priority Badge Classes with Colorful Gradients
+  let priorityBadgeClass = 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700';
   if (task.priority === 'urgent' || task.priority === 'high') {
-    priorityBadgeClass = 'bg-rose-100 text-rose-700';
+    priorityBadgeClass = 'bg-gradient-to-r from-rose-50 to-pink-50 dark:from-rose-950/70 dark:to-pink-950/70 text-rose-700 dark:text-rose-300 border border-rose-300/80 dark:border-rose-800/80 shadow-2xs font-extrabold';
   } else if (task.priority === 'medium') {
-    priorityBadgeClass = 'bg-indigo-100 text-indigo-700';
+    priorityBadgeClass = 'bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/70 dark:to-purple-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-300/80 dark:border-indigo-800/80 shadow-2xs font-bold';
+  } else if (task.priority === 'low') {
+    priorityBadgeClass = 'bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/70 dark:to-teal-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800/80 shadow-2xs font-bold';
   }
 
   if (isTableRow) {
@@ -78,12 +84,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       <>
         <tr
           id={`task-row-${task.id}`}
-          className={`transition-all group cursor-pointer ${
+          className={`transition-colors group cursor-pointer ${
             task.completed
-              ? 'bg-slate-50/40 text-slate-400 hover:bg-slate-50/80'
+              ? 'bg-slate-50/50 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850/60'
               : isTaskOverdue
-              ? 'animate-pulse-row-red hover:bg-rose-100/70 border-l-4 border-l-rose-600'
-              : 'hover:bg-slate-50/80'
+              ? 'animate-pulse-row-red bg-rose-50/30 dark:bg-rose-950/20 hover:bg-rose-100/60 dark:hover:bg-rose-950/40 border-l-4 border-l-rose-500 dark:border-l-rose-500'
+              : 'hover:bg-slate-50/90 dark:hover:bg-slate-800/50'
           }`}
         >
           {/* Status Checkbox */}
@@ -94,18 +100,18 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 if (canToggleComplete) onToggleComplete(task);
               }}
               disabled={!canToggleComplete}
-              className={`p-1 rounded transition-colors ${
+              className={`p-1 rounded transition-all duration-200 hover:scale-110 active:scale-90 ${
                 !canToggleComplete ? 'opacity-40 cursor-not-allowed' :
                 task.completed
-                  ? 'text-indigo-600 hover:text-indigo-700 cursor-pointer'
+                  ? 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 cursor-pointer animate-pop-bounce'
                   : isTaskOverdue
-                  ? 'text-rose-400 hover:text-rose-600 cursor-pointer'
-                  : 'text-slate-300 hover:text-indigo-600 cursor-pointer'
+                  ? 'text-rose-500 dark:text-rose-400 hover:text-rose-600 cursor-pointer'
+                  : 'text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer'
               }`}
               title={!canToggleComplete ? 'គ្មានសិទ្ធិផ្លាស់ប្តូរស្ថានភាព' : task.completed ? 'មិនទាន់រួចរាល់' : 'រួចរាល់'}
             >
               {task.completed ? (
-                <CheckSquare className="w-4 h-4 text-indigo-600" />
+                <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               ) : (
                 <Square className="w-4 h-4" />
               )}
@@ -118,10 +124,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               <span
                 className={`text-xs sm:text-sm font-semibold transition-colors ${
                   task.completed
-                    ? 'line-through text-slate-400'
+                    ? 'line-through text-slate-400 dark:text-slate-500'
                     : isTaskOverdue
-                    ? 'text-rose-950 font-bold group-hover:text-rose-700'
-                    : 'text-slate-700 group-hover:text-indigo-600'
+                    ? 'text-rose-950 dark:text-rose-200 font-bold group-hover:text-rose-700 dark:group-hover:text-rose-300'
+                    : 'text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400'
                 }`}
               >
                 {task.title}
@@ -140,19 +146,26 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               )}
 
               {task.recurring && task.recurring !== 'none' && (
-                <span className="text-[10px] text-purple-600 bg-purple-50 px-1 py-0.2 rounded font-medium">
+                <span className="text-[10px] text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800/50 px-1.5 py-0.2 rounded font-medium">
                   {recurringOpt?.labelKm}
+                </span>
+              )}
+
+              {task.archived && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 shrink-0">
+                  <Archive className="w-2.5 h-2.5" />
+                  <span>ប័ណ្ណសារ</span>
                 </span>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
-              <p className={`text-[10px] italic font-medium ${isTaskOverdue ? 'text-rose-600/80 font-semibold' : 'text-slate-400'}`}>
+              <p className={`text-[10px] italic font-medium ${isTaskOverdue ? 'text-rose-600/80 dark:text-rose-400/80 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>
                 {category.labelKm}
                 {task.description ? ` • ${task.description}` : ''}
               </p>
               {task.assigneeName && (
-                <span className="inline-flex items-center gap-1 text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 font-medium">
-                  <User className="w-2.5 h-2.5 text-indigo-600" />
+                <span className="inline-flex items-center gap-1 text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700 font-medium">
+                  <User className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
                   <span>{task.assigneeName}</span>
                 </span>
               )}
@@ -162,7 +175,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     e.stopPropagation();
                     setShowSubtasks(!showSubtasks);
                   }}
-                  className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-0.5"
+                  className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium inline-flex items-center gap-0.5 cursor-pointer"
                 >
                   <span>
                     ({toKhmerNumber(completedSubtasks)}/{toKhmerNumber(totalSubtasks)})
@@ -189,20 +202,20 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {/* Due Time & Date */}
           <td className="px-3 sm:px-4 py-2.5 whitespace-nowrap text-[10px]">
             {isTaskOverdue ? (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 font-bold border border-rose-300 shadow-2xs animate-pulse-badge-red">
-                <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-200 font-bold border border-rose-300 dark:border-rose-800/80 shadow-2xs animate-pulse-badge-red">
+                <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400 shrink-0" />
                 <span>{dueInfo.text}</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1 text-slate-500 font-medium">
-                <Clock className="w-3 h-3 text-slate-400" />
+              <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400 font-medium font-mono tabular-nums">
+                <Clock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
                 <span>{dueInfo.text}</span>
               </div>
             )}
           </td>
 
           {/* Actions */}
-          <td className="px-3 sm:px-4 py-2.5 text-right whitespace-nowrap w-24">
+          <td className="px-3 sm:px-4 py-2.5 text-right whitespace-nowrap w-28">
             <div className="flex items-center justify-end gap-1">
               {!task.completed && (
                 <button
@@ -210,14 +223,30 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     e.stopPropagation();
                     onStartFocusTimer(task);
                   }}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1 rounded transition-colors cursor-pointer ${
                     isTaskOverdue
-                      ? 'text-rose-600 hover:bg-rose-200'
-                      : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                      ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-200 dark:hover:bg-rose-950/60'
+                      : 'text-slate-400 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
                   }`}
                   title="ផ្ដោតអារម្មណ៍ (Focus Timer)"
                 >
                   <Play className="w-3 h-3" />
+                </button>
+              )}
+              {onToggleArchive && (task.completed || task.archived) && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleArchive(task);
+                  }}
+                  className={`p-1 rounded transition-colors cursor-pointer ${
+                    task.archived
+                      ? 'text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                      : 'text-slate-400 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                  }`}
+                  title={task.archived ? 'យកចេញពីប័ណ្ណសារ (Unarchive / Restore)' : 'ទុកក្នុងប័ណ្ណសារ (Archive)'}
+                >
+                  {task.archived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
                 </button>
               )}
               {canEdit && (
@@ -226,7 +255,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     e.stopPropagation();
                     onEdit(task);
                   }}
-                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                  className="p-1 text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
                   title="កែសម្រួល"
                 >
                   <Edit2 className="w-3 h-3" />
@@ -238,7 +267,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     e.stopPropagation();
                     onDelete(task.id);
                   }}
-                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                  className="p-1 text-slate-400 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors cursor-pointer"
                   title="លុប"
                 >
                   <Trash2 className="w-3 h-3" />
@@ -250,34 +279,34 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
         {/* Subtask Dropdown Rows */}
         {showSubtasks && totalSubtasks > 0 && (
-          <tr className="bg-slate-50/70 border-b border-slate-100">
+          <tr className="bg-slate-50/70 dark:bg-slate-850/80 border-b border-slate-100 dark:border-slate-800">
             <td colSpan={5} className="px-10 py-2.5">
               <div className="space-y-1.5">
-                <div className="text-[10px] font-bold text-slate-400 uppercase">
+                <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
                   អនុការងារ (Checklist)
                 </div>
                 {task.subtasks.map((sub) => (
                   <div
                     key={sub.id}
-                    className="flex items-center space-x-2 text-xs text-slate-600 py-0.5"
+                    className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300 py-0.5"
                   >
                     <button
                       onClick={() => onToggleSubtask(task.id, sub.id)}
-                      className={`transition-colors ${
+                      className={`transition-colors cursor-pointer ${
                         sub.completed
-                          ? 'text-indigo-600'
-                          : 'text-slate-300 hover:text-indigo-600'
+                          ? 'text-indigo-600 dark:text-indigo-400'
+                          : 'text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400'
                       }`}
                     >
                       {sub.completed ? (
-                        <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
+                        <CheckSquare className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                       ) : (
                         <Square className="w-3.5 h-3.5" />
                       )}
                     </button>
                     <span
                       className={`text-xs ${
-                        sub.completed ? 'line-through text-slate-400' : ''
+                        sub.completed ? 'line-through text-slate-400 dark:text-slate-500' : ''
                       }`}
                     >
                       {sub.title}
@@ -296,19 +325,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   return (
     <div
       id={`task-card-${task.id}`}
-      className={`group bg-white rounded-xl border p-4 transition-all duration-200 card-hover-effect animate-fade-in ${
+      className={`group bg-white dark:bg-slate-900 rounded-xl border p-4 transition-all duration-200 card-hover-effect animate-fade-in ${
         task.completed
-          ? 'border-slate-200 bg-slate-50/60 opacity-80'
+          ? 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 opacity-80'
           : isTaskOverdue
-          ? 'border-2 border-rose-500 bg-gradient-to-br from-white via-rose-50/30 to-rose-50/60 animate-pulse-border-red shadow-sm'
-          : 'border-slate-200 hover:border-indigo-200'
+          ? 'border-2 border-rose-500 dark:border-rose-600 bg-gradient-to-br from-white via-rose-50/30 to-rose-50/60 dark:from-slate-900 dark:via-rose-950/20 dark:to-rose-950/40 animate-pulse-border-red shadow-sm'
+          : 'border-slate-200/80 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800/60'
       }`}
     >
       {/* Overdue Alert Banner in Card View */}
       {isTaskOverdue && (
-        <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 mb-2.5 rounded-lg bg-rose-100/90 text-rose-900 text-[11px] font-bold border border-rose-300 shadow-2xs animate-pulse-badge-red">
+        <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 mb-2.5 rounded-lg bg-rose-100/90 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 text-[11px] font-bold border border-rose-300 dark:border-rose-800/80 shadow-2xs animate-pulse-badge-red">
           <div className="flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 animate-bounce" />
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 animate-bounce" />
             <span>កិច្ចការហួសកាលកំណត់ (Overdue Task) — សូមប្រញាប់ដោះស្រាយ!</span>
           </div>
           <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -325,14 +354,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           className={`shrink-0 mt-0.5 transition-colors ${
             !canToggleComplete ? 'opacity-40 cursor-not-allowed' :
             task.completed
-              ? 'text-indigo-600 hover:text-indigo-700 cursor-pointer'
+              ? 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 cursor-pointer'
               : isTaskOverdue
-              ? 'text-rose-400 hover:text-rose-600 cursor-pointer'
-              : 'text-slate-300 hover:text-indigo-600 cursor-pointer'
+              ? 'text-rose-400 dark:text-rose-400 hover:text-rose-600 cursor-pointer'
+              : 'text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer'
           }`}
         >
           {task.completed ? (
-            <CheckSquare className="w-5 h-5 text-indigo-600" />
+            <CheckSquare className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
           ) : (
             <Square className="w-5 h-5" />
           )}
@@ -341,7 +370,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5 mb-1">
-              <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-medium">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 px-1.5 py-0.5 rounded font-medium">
                 {category.labelKm}
               </span>
               <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${priorityBadgeClass}`}>
@@ -354,9 +383,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 </span>
               )}
               {task.assigneeName && (
-                <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 font-medium">
+                <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-100 dark:border-indigo-800/60 font-medium">
                   <User className="w-2.5 h-2.5" />
                   <span>{task.assigneeName}</span>
+                </span>
+              )}
+              {task.archived && (
+                <span className="inline-flex items-center gap-1 text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/60 font-bold">
+                  <Archive className="w-2.5 h-2.5" />
+                  <span>ប័ណ្ណសារ</span>
                 </span>
               )}
             </div>
@@ -365,20 +400,33 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {!task.completed && (
                 <button
                   onClick={() => onStartFocusTimer(task)}
-                  className={`p-1 rounded ${
+                  className={`p-1 rounded cursor-pointer ${
                     isTaskOverdue
-                      ? 'text-rose-600 hover:bg-rose-100'
-                      : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                      ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60'
+                      : 'text-slate-400 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
                   }`}
                   title="ផ្ដោត"
                 >
                   <Play className="w-3.5 h-3.5" />
                 </button>
               )}
+              {onToggleArchive && (task.completed || task.archived) && (
+                <button
+                  onClick={() => onToggleArchive(task)}
+                  className={`p-1 rounded transition-colors cursor-pointer ${
+                    task.archived
+                      ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                      : 'text-slate-400 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                  }`}
+                  title={task.archived ? 'យកចេញពីប័ណ្ណសារ (Unarchive / Restore)' : 'ទុកក្នុងប័ណ្ណសារ (Archive)'}
+                >
+                  {task.archived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                </button>
+              )}
               {canEdit && (
                 <button
                   onClick={() => onEdit(task)}
-                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded"
+                  className="p-1 text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer transition-colors"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
@@ -386,7 +434,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {canDelete && (
                 <button
                   onClick={() => onDelete(task.id)}
-                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                  className="p-1 text-slate-400 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded cursor-pointer transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -395,12 +443,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           </div>
 
           <h3
-            className={`text-sm font-semibold ${
+            className={`text-sm font-semibold cursor-pointer ${
               task.completed
-                ? 'line-through text-slate-400'
+                ? 'line-through text-slate-400 dark:text-slate-500'
                 : isTaskOverdue
-                ? 'text-rose-950 font-bold'
-                : 'text-slate-800'
+                ? 'text-rose-950 dark:text-rose-200 font-bold'
+                : 'text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400'
             }`}
             onClick={() => canEdit && onEdit(task)}
           >
@@ -408,16 +456,16 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           </h3>
 
           {task.description && (
-            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{task.description}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{task.description}</p>
           )}
 
-          <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 text-[10px] text-slate-400 font-medium">
-            <span className={`flex items-center gap-1 ${isTaskOverdue ? 'text-rose-700 font-bold bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200' : ''}`}>
-              {isTaskOverdue ? <AlertCircle className="w-3 h-3 text-rose-600" /> : <Clock className="w-3 h-3" />}
+          <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+            <span className={`flex items-center gap-1 ${isTaskOverdue ? 'text-rose-700 dark:text-rose-300 font-bold bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-900/60' : ''}`}>
+              {isTaskOverdue ? <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" /> : <Clock className="w-3 h-3" />}
               {dueInfo.text}
             </span>
             {task.creatorName && (
-              <span className="text-[9px] text-slate-400">
+              <span className="text-[9px] text-slate-400 dark:text-slate-500">
                 បង្កើត៖ {task.creatorName}
               </span>
             )}

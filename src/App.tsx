@@ -11,6 +11,7 @@ import {
   RolePermissions,
   ActivityLog,
   SystemConfig,
+  ITExpense,
 } from './types';
 import { getInitialTasks, getInitialStreak } from './utils/initialData';
 import { soundFx } from './utils/sound';
@@ -46,6 +47,7 @@ import {
   dbRowToTask,
   dbRowToUser,
 } from './lib/supabase';
+import { serverApi } from './lib/serverApi';
 
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -53,11 +55,12 @@ import { DailyProgressCard } from './components/DailyProgressCard';
 import { TaskFilterTabs } from './components/TaskFilterTabs';
 import { TaskList } from './components/TaskList';
 import { RightSidebarWidgets } from './components/RightSidebarWidgets';
+import { PriorityBreakdownCard } from './components/PriorityBreakdownCard';
 import { TaskModal } from './components/TaskModal';
 import { FocusTimerModal } from './components/FocusTimerModal';
 import { CalendarView } from './components/CalendarView';
 import { ProgressAnalyticsView } from './components/ProgressAnalyticsView';
-import { ReminderAlertBanner } from './components/ReminderAlertBanner';
+import { ITExpenseTracker } from './components/ITExpenseTracker';
 import { QuickAddBar } from './components/QuickAddBar';
 import { SupabaseSyncModal } from './components/SupabaseSyncModal';
 import { UserManagementModal } from './components/UserManagementModal';
@@ -93,6 +96,8 @@ const STORAGE_KEYS = {
   ROLE_PERMISSIONS: 'kh_daily_role_permissions_v1',
   ACTIVITY_LOGS: 'kh_daily_activity_logs_v1',
   AUTH_AUTHENTICATED: 'kh_daily_auth_authenticated_v1',
+  IT_EXPENSES: 'kh_daily_it_expenses_v1',
+  THEME_MODE: 'kh_daily_theme_mode_v1',
 };
 
 const LEGACY_MOCK_TASK_IDS = new Set(['task-1', 'task-2', 'task-3', 'task-4', 'task-5']);
@@ -244,6 +249,71 @@ export default function App() {
     return true;
   });
 
+  // Global Theme Mode (Dark / Light) with localStorage persistence
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    try {
+      const saved =
+        localStorage.getItem(STORAGE_KEYS.THEME_MODE) ||
+        localStorage.getItem('theme_mode') ||
+        localStorage.getItem('dark_mode');
+      if (saved) {
+        return saved === 'dark';
+      }
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch {
+      // Ignore
+    }
+    return false;
+  });
+
+  // Synchronize dark mode class to <html> and <body> and persist to localStorage
+  useEffect(() => {
+    try {
+      const root = document.documentElement;
+      if (isDarkMode) {
+        root.classList.add('dark');
+        document.body.classList.add('dark');
+        localStorage.setItem(STORAGE_KEYS.THEME_MODE, 'dark');
+        localStorage.setItem('theme_mode', 'dark');
+      } else {
+        root.classList.remove('dark');
+        document.body.classList.remove('dark');
+        localStorage.setItem(STORAGE_KEYS.THEME_MODE, 'light');
+        localStorage.setItem('theme_mode', 'light');
+      }
+    } catch (e) {
+      console.error('Failed to sync dark mode state to DOM/storage', e);
+    }
+  }, [isDarkMode]);
+
+  // Listen for storage events to synchronize theme across multiple open tabs
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (
+        e.key === STORAGE_KEYS.THEME_MODE ||
+        e.key === 'theme_mode' ||
+        e.key === 'dark_mode'
+      ) {
+        if (e.newValue === 'dark') setIsDarkMode(true);
+        else if (e.newValue === 'light') setIsDarkMode(false);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const handleToggleDarkMode = () => {
+    setIsDarkMode((prev) => {
+      const next = !prev;
+      if (soundEnabled) {
+        soundFx.playClick();
+      }
+      return next;
+    });
+  };
+
   // Filter State
   const [filters, setFilters] = useState<TaskFilterState>({
     period: 'today',
@@ -253,8 +323,52 @@ export default function App() {
     sortBy: 'dueAsc',
   });
 
-  // Mobile sidebar state
+  // IT Support Expenses State
+  const [itExpenses, setItExpenses] = useState<ITExpense[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.IT_EXPENSES);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((e) => ({
+            ...e,
+            worksheetName: e.worksheetName || `ខែ ${e.month || (e.date ? e.date.substring(0, 7) : '')}`,
+          }));
+        }
+      }
+    } catch {
+      // Ignore
+    }
+    return [];
+  });
+
+  // Sidebar collapse and mobile drawer state
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('app_sidebar_collapsed_v1');
+      if (saved !== null) return JSON.parse(saved);
+    } catch {
+      // Ignore
+    }
+    return false;
+  });
+
+  const handleToggleSidebar = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setIsMobileSidebarOpen((prev) => !prev);
+    } else {
+      setIsSidebarCollapsed((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('app_sidebar_collapsed_v1', JSON.stringify(next));
+        } catch {
+          // Ignore
+        }
+        return next;
+      });
+    }
+  };
 
   // Active reminders to show banner
   const [activeAlerts, setActiveAlerts] = useState<Task[]>([]);
@@ -515,6 +629,125 @@ export default function App() {
     [currentUser]
   );
 
+  // Load IT Support Expenses from Server Backend
+  useEffect(() => {
+    serverApi
+      .getITExpenses()
+      .then((res) => {
+        if (res && Array.isArray(res.expenses)) {
+          const sanitized = res.expenses.map((e) => ({
+            ...e,
+            worksheetName: e.worksheetName || `ខែ ${e.month || (e.date ? e.date.substring(0, 7) : '')}`,
+          }));
+          setItExpenses(sanitized);
+          try {
+            localStorage.setItem(STORAGE_KEYS.IT_EXPENSES, JSON.stringify(sanitized));
+          } catch {}
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load IT expenses from server:', err);
+      });
+  }, []);
+
+  // Save IT Support Expense
+  const handleSaveITExpense = async (expense: ITExpense) => {
+    soundFx.playCelebration();
+    const safeExpense: ITExpense = {
+      ...expense,
+      worksheetName: expense.worksheetName || `ខែ ${expense.month || (expense.date ? expense.date.substring(0, 7) : '')}`,
+    };
+    setItExpenses((prev) => {
+      const idx = prev.findIndex((e) => e.id === safeExpense.id);
+      let updated: ITExpense[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = safeExpense;
+      } else {
+        updated = [safeExpense, ...prev];
+      }
+      try {
+        localStorage.setItem(STORAGE_KEYS.IT_EXPENSES, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    logActivity('create_task', safeExpense.title, `បានកត់ត្រាការចំណាយ IT Support៖ $${safeExpense.amount} (${safeExpense.category}) ភ្ជាប់ Worksheet «${safeExpense.worksheetName}»`);
+
+    try {
+      await serverApi.saveITExpense(safeExpense, currentUser);
+    } catch (e) {
+      console.error('Failed to sync expense to server backend:', e);
+    }
+  };
+
+  // Delete IT Support Expense
+  const handleDeleteITExpense = async (id: string) => {
+    soundFx.playDelete();
+    const target = itExpenses.find((e) => e.id === id);
+    setItExpenses((prev) => {
+      const updated = prev.filter((e) => e.id !== id);
+      try {
+        localStorage.setItem(STORAGE_KEYS.IT_EXPENSES, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    if (target) {
+      logActivity('delete_task', target.title, `បានលុបការចំណាយ IT Support៖ $${target.amount}`);
+    }
+
+    try {
+      await serverApi.deleteITExpense(id);
+    } catch (e) {
+      console.error('Failed to delete expense on server backend:', e);
+    }
+  };
+
+  // Import IT Support Expenses (e.g. pulled from Google Sheets)
+  const handleImportITExpenses = async (
+    importedExpenses: ITExpense[],
+    mode: 'replace' | 'merge' = 'merge'
+  ) => {
+    soundFx.playCelebration();
+    const cleanImported = importedExpenses.map((exp) => ({
+      ...exp,
+      worksheetName: exp.worksheetName || `ខែ ${exp.month || (exp.date ? exp.date.substring(0, 7) : '')}`,
+    }));
+
+    setItExpenses((prev) => {
+      let updated: ITExpense[];
+      if (mode === 'replace') {
+        updated = cleanImported;
+      } else {
+        const map = new Map<string, ITExpense>();
+        // Add existing items
+        prev.forEach((item) => map.set(item.id, item));
+        // Add or replace with newly imported items
+        cleanImported.forEach((item) => map.set(item.id, item));
+        updated = Array.from(map.values());
+      }
+      try {
+        localStorage.setItem(STORAGE_KEYS.IT_EXPENSES, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    logActivity(
+      'import_tasks',
+      'Google Sheets',
+      `បាននាំចូល និងបង្ហាញទិន្នន័យចំណាយ IT Support ចំនួន ${importedExpenses.length} ប្រតិបត្តិការពី Google Sheets`
+    );
+
+    try {
+      for (const exp of importedExpenses) {
+        await serverApi.saveITExpense(exp, currentUser);
+      }
+    } catch (e) {
+      console.warn('Failed to sync imported expenses to backend:', e);
+    }
+  };
+
   // RBAC Permission checks for currently logged in user
   const canCreateTask = hasPermission(currentUser.role, 'canCreateTask', rolePermissions);
   const canEditTask = hasPermission(currentUser.role, 'canEditTask', rolePermissions);
@@ -555,8 +788,31 @@ export default function App() {
     } catch {}
     if (user.role === 'member' || user.role === 'viewer') {
       setFilters((prev) => ({ ...prev, assigneeFilter: user.id }));
+    } else {
+      setFilters((prev) => ({ ...prev, assigneeFilter: 'all' }));
     }
     logActivity('update_role', user.khmerName, `បានប្តូរទៅកាន់គណនី៖ ${user.khmerName} (${user.role})`);
+
+    // Load locally cached tasks specifically partitioned for this user first
+    const userStorageKey = `kh_user_tasks_${user.id}`;
+    try {
+      const cached = localStorage.getItem(userStorageKey);
+      if (cached) {
+        setTasks(JSON.parse(cached));
+      } else if (user.role !== 'admin') {
+        setTasks([]);
+      }
+    } catch {}
+
+    // Pull strictly authorized tasks from server for this user
+    serverApi.getTasks(user).then((res) => {
+      if (res && res.tasks) {
+        setTasks(res.tasks);
+        try {
+          localStorage.setItem(userStorageKey, JSON.stringify(res.tasks));
+        } catch {}
+      }
+    }).catch(() => {});
   };
 
   const handleLoginSuccess = (user: UserAccount) => {
@@ -567,7 +823,11 @@ export default function App() {
     try {
       localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
       localStorage.setItem('taskmate_current_user_id', user.id);
+      localStorage.setItem('kh_daily_current_user_id_v1', user.id);
       localStorage.setItem(STORAGE_KEYS.AUTH_AUTHENTICATED, 'true');
+      localStorage.setItem('taskmate_auth_authenticated', 'true');
+      localStorage.setItem('kh_daily_auth_authenticated_v1', 'true');
+      localStorage.setItem('kh_daily_saved_device_account_v1', JSON.stringify(user));
     } catch {}
     if (user.role === 'member' || user.role === 'viewer') {
       setFilters((prev) => ({ ...prev, assigneeFilter: user.id }));
@@ -576,8 +836,28 @@ export default function App() {
     }
     logActivity('update_role', user.khmerName, `បានចូលប្រើប្រាស់គណនីជោគជ័យ (${user.role})`);
 
-    // Instant cloud re-sync on login to load all fresh tasks for this user from database
-    if (supabase) {
+    // Load locally partitioned tasks for this user first to prevent leaking other accounts
+    const userStorageKey = `kh_user_tasks_${user.id}`;
+    try {
+      const cached = localStorage.getItem(userStorageKey);
+      if (cached) {
+        setTasks(JSON.parse(cached));
+      } else if (user.role !== 'admin') {
+        setTasks([]);
+      }
+    } catch {}
+
+    // Fetch strictly authorized tasks for this user from central server
+    serverApi.getTasks(user).then((res) => {
+      if (res && res.tasks) {
+        setTasks(res.tasks);
+        try {
+          localStorage.setItem(userStorageKey, JSON.stringify(res.tasks));
+        } catch {}
+      }
+    }).catch(() => {});
+
+    if (supabase && user.role === 'admin') {
       fetchTasksFromSupabase().then((res) => {
         if (res.tasks && res.tasks.length > 0) {
           setTasks(res.tasks);
@@ -591,6 +871,31 @@ export default function App() {
     logActivity('update_role', currentUser.khmerName, 'បានចាកចេញពីគណនី');
     setIsAuthenticated(false);
     setIsAuthModalOpen(true);
+    try {
+      localStorage.setItem(STORAGE_KEYS.AUTH_AUTHENTICATED, 'false');
+      localStorage.setItem('taskmate_auth_authenticated', 'false');
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
+      localStorage.removeItem('taskmate_current_user_id');
+      localStorage.removeItem('kh_daily_current_user_id_v1');
+      localStorage.removeItem('kh_daily_saved_device_account_v1');
+    } catch {}
+    // Clear in-memory tasks so next user cannot view leftover data
+    setTasks([]);
+  };
+
+  const handleSwitchAccount = () => {
+    soundFx.playClick();
+    setIsAuthenticated(false);
+    setIsAuthModalOpen(true);
+    try {
+      localStorage.setItem(STORAGE_KEYS.AUTH_AUTHENTICATED, 'false');
+      localStorage.setItem('taskmate_auth_authenticated', 'false');
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
+      localStorage.removeItem('taskmate_current_user_id');
+      localStorage.removeItem('kh_daily_current_user_id_v1');
+      localStorage.removeItem('kh_daily_saved_device_account_v1');
+    } catch {}
+    setTasks([]);
   };
 
   // Merge helper for user lists across devices and cloud (Strict Database Authority)
@@ -663,15 +968,21 @@ export default function App() {
 
   const handleSaveUser = (savedUser: UserAccount) => {
     soundFx.playClick();
+    const verifiedUser: UserAccount = {
+      ...savedUser,
+      verifiedInDatabase: true,
+      status: savedUser.status || 'active',
+    };
+
     setUsers((prev) => {
-      const exists = prev.some((u) => u.id === savedUser.id);
+      const exists = prev.some((u) => u.id === verifiedUser.id);
       let updated: UserAccount[];
       if (exists) {
-        logActivity('update_role', savedUser.khmerName, `បានកែប្រែគណនី៖ ${savedUser.khmerName}`);
-        updated = prev.map((u) => (u.id === savedUser.id ? savedUser : u));
+        logActivity('update_role', verifiedUser.khmerName, `បានកែប្រែគណនី៖ ${verifiedUser.khmerName}`);
+        updated = prev.map((u) => (u.id === verifiedUser.id ? verifiedUser : u));
       } else {
-        logActivity('add_user', savedUser.khmerName, `បានបង្កើតគណនី៖ ${savedUser.khmerName} (${savedUser.role})`);
-        updated = [...prev, savedUser];
+        logActivity('add_user', verifiedUser.khmerName, `បានបង្កើតគណនី៖ ${verifiedUser.khmerName} (${verifiedUser.role})`);
+        updated = [...prev, verifiedUser];
       }
 
       try {
@@ -684,21 +995,24 @@ export default function App() {
       return updated;
     });
 
+    // Save to Central Server API immediately (Cross-Device)
+    serverApi.saveUser(verifiedUser).catch(() => {});
+
     // Save to Supabase Cloud immediately
-    saveUserToSupabase(savedUser).catch((err) =>
+    saveUserToSupabase(verifiedUser).catch((err) =>
       console.warn('Failed to save user to Supabase:', err)
     );
 
     // Initialize isolated storage partition for this user
     try {
-      initUserPartition(savedUser);
+      initUserPartition(verifiedUser);
     } catch (err) {
       console.warn('Failed to init user storage partition:', err);
     }
 
     // If updating current user's profile
-    if (savedUser.id === currentUser.id) {
-      setCurrentUser(savedUser);
+    if (verifiedUser.id === currentUser.id) {
+      setCurrentUser(verifiedUser);
     }
   };
 
@@ -723,6 +1037,9 @@ export default function App() {
       }
     }
     logActivity('delete_user', userToDelete?.khmerName || userId, `បានលុបគណនីចេញពីប្រព័ន្ធ`);
+
+    // Delete in Central Server API
+    serverApi.deleteUser(userId).catch(() => {});
 
     // Delete in Supabase Cloud
     deleteUserFromSupabase(userId).catch((err) =>
@@ -1010,7 +1327,103 @@ export default function App() {
     };
   }, []);
 
-  // Manual Re-sync from Supabase
+  // Central Server API Real-Time Cross-Device Synchronization
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser || !currentUser.id) return;
+    let isMounted = true;
+
+    async function syncWithCentralServer() {
+      try {
+        const [tasksRes, remoteUsers] = await Promise.all([
+          serverApi.getTasks(currentUser),
+          serverApi.getUsers(),
+        ]);
+
+        if (!isMounted) return;
+
+        // 1. Sync Tasks (Strictly scoped to current user)
+        if (tasksRes && tasksRes.tasks) {
+          setTasks((prevLocal) => {
+            const serverTaskMap = new Map<string, Task>();
+            tasksRes.tasks.forEach((t) => serverTaskMap.set(t.id, t));
+
+            // Only upload tasks created by or assigned to this user that are not on the server yet
+            const unsynced = prevLocal.filter(
+              (t) =>
+                !serverTaskMap.has(t.id) &&
+                (currentUser.role === 'admin' ||
+                  t.creatorId === currentUser.id ||
+                  t.assigneeId === currentUser.id)
+            );
+            if (unsynced.length > 0) {
+              serverApi.bulkSaveTasks(unsynced, currentUser).catch(() => {});
+              return prevLocal;
+            }
+            return tasksRes.tasks;
+          });
+        }
+
+        // 2. Sync Users
+        if (remoteUsers && remoteUsers.length > 0) {
+          setUsers((prev) => {
+            const merged = mergeUserLists(remoteUsers, prev);
+            try {
+              localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(merged));
+              localStorage.setItem('taskmate_users', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Central server sync error:', err);
+      }
+    }
+
+    syncWithCentralServer();
+
+    // Fast multi-device background polling (Every 4 seconds for instant cross-device updates)
+    const serverPollingInterval = setInterval(() => {
+      if (document.visibilityState === 'visible' && isMounted) {
+        serverApi.getTasks(currentUser).then((res) => {
+          if (res && res.tasks && isMounted) {
+            setTasks((prev) => {
+              if (res.tasks.length !== prev.length || JSON.stringify(res.tasks) !== JSON.stringify(prev)) {
+                return res.tasks;
+              }
+              return prev;
+            });
+          }
+        }).catch(() => {});
+
+        serverApi.getUsers().then((remoteUsers) => {
+          if (remoteUsers && remoteUsers.length > 0 && isMounted) {
+            setUsers((prev) => {
+              if (remoteUsers.length !== prev.length) {
+                return mergeUserLists(remoteUsers, prev);
+              }
+              return prev;
+            });
+          }
+        }).catch(() => {});
+      }
+    }, 4000);
+
+    const onFocus = () => {
+      syncWithCentralServer();
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      isMounted = false;
+      clearInterval(serverPollingInterval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [currentUser, isAuthenticated]);
+
+  // Manual Re-sync from Supabase & Server
   const handleManualSync = async () => {
     setSupabaseSyncStatus('syncing');
     setSupabaseSyncMessage('កំពុងទាញទិន្នន័យពី Cloud Database...');
@@ -1053,6 +1466,11 @@ export default function App() {
   // Push local state to Cloud
   const handlePushLocalToCloud = async () => {
     setSupabaseSyncStatus('syncing');
+
+    // Also push to central Server API
+    serverApi.bulkSaveTasks(tasks, currentUser).catch(() => {});
+    serverApi.bulkSaveUsers(users).catch(() => {});
+
     const [tasksRes, usersRes, streakRes, logsRes, rbacRes] = await Promise.all([
       syncAllTasksToSupabase(tasks),
       syncAllUsersToSupabase(users),
@@ -1066,12 +1484,21 @@ export default function App() {
       throw tasksRes.error || new Error('មិនអាចបញ្ជូនទិន្នន័យ Tasks បាន');
     }
     setSupabaseSyncStatus('synced');
-    setSupabaseSyncMessage(`បានបញ្ជូន ${tasks.length} ភារកិច្ច និង ${users.length} គណនីទៅ Supabase រួចរាល់ ✅`);
+    setSupabaseSyncMessage(`បានបញ្ជូន ${tasks.length} ភារកិច្ច និង ${users.length} គណនីទៅ Cloud Database រួចរាល់ ✅`);
   };
 
   // Pull Cloud to local
   const handlePullCloudToLocal = async () => {
     setSupabaseSyncStatus('syncing');
+
+    // Pull from central server first (scoped to current user)
+    try {
+      const serverTasks = await serverApi.getTasks(currentUser);
+      if (serverTasks && serverTasks.tasks) {
+        setTasks(serverTasks.tasks);
+      }
+    } catch {}
+
     const [tasksRes, usersRes, streakRes, logsRes, rbacRes] = await Promise.all([
       fetchTasksFromSupabase(),
       fetchUsersFromSupabase(),
@@ -1176,6 +1603,9 @@ export default function App() {
       prev.map((t) => (t.id === task.id ? updatedTask : t))
     );
 
+    // Save to Central Server API (Cross-Device)
+    serverApi.saveTask(updatedTask, currentUser).catch(() => {});
+
     // Save to Supabase
     saveTaskToSupabase(updatedTask).catch((err) =>
       console.warn('Failed to sync completed task to Supabase:', err)
@@ -1230,6 +1660,9 @@ export default function App() {
           completed: allCompleted ? true : task.completed,
         };
 
+        // Save to central server API
+        serverApi.saveTask(updatedTask, currentUser).catch(() => {});
+
         saveTaskToSupabase(updatedTask).catch((err) =>
           console.warn('Failed to sync subtask update to Supabase:', err)
         );
@@ -1239,27 +1672,56 @@ export default function App() {
     );
   };
 
-  // Add / Save Task
+  // Add / Save Task (Strict Real User Verification against Database)
   const handleSaveTask = (savedTask: Task) => {
     soundFx.playClick();
-    const isRegular = currentUser.role === 'member' || currentUser.role === 'viewer';
+
+    // 1. Verify Creator is a real active user in the database
+    const verifiedCreator = users.find(
+      (u) =>
+        u &&
+        u.status === 'active' &&
+        (u.id === savedTask.creatorId || u.id === currentUser.id || (u.email && u.email === savedTask.creatorEmail))
+    ) || (currentUser && users.find((u) => u.id === currentUser.id)) || users.find((u) => u.role === 'admin');
+
+    if (!verifiedCreator) {
+      console.warn('Task creation rejected: Creator is not a real registered user in database');
+      return;
+    }
+
+    // 2. Verify Assignee is a real active user in the database
+    const verifiedAssignee = users.find(
+      (u) =>
+        u &&
+        u.status === 'active' &&
+        (u.id === savedTask.assigneeId || (u.email && u.email === savedTask.assigneeEmail))
+    ) || verifiedCreator;
+
     const finalTask: Task = {
       ...savedTask,
-      creatorId: savedTask.creatorId || currentUser.id,
-      creatorName: savedTask.creatorName || (currentUser.khmerName || currentUser.name),
-      assigneeId: savedTask.assigneeId || (isRegular ? currentUser.id : undefined),
-      assigneeName: savedTask.assigneeName || (isRegular ? (currentUser.khmerName || currentUser.name) : undefined),
+      creatorId: verifiedCreator.id,
+      creatorName: verifiedCreator.khmerName || verifiedCreator.name,
+      creatorEmail: verifiedCreator.email,
+      assigneeId: verifiedAssignee.id,
+      assigneeName: verifiedAssignee.khmerName || verifiedAssignee.name,
+      assigneeEmail: verifiedAssignee.email,
+      department: verifiedAssignee.department || verifiedCreator.department || 'General',
+      visibilityScope: savedTask.visibilityScope || (verifiedCreator.role === 'admin' ? 'all' : 'assigned_only'),
+      verifiedInDatabase: true,
     };
 
     setTasks((prev) => {
       const exists = prev.some((t) => t.id === finalTask.id);
       if (exists) {
-        logActivity('edit_task', finalTask.title, finalTask.assigneeName ? `ចាត់តាំងឱ្យ៖ ${finalTask.assigneeName}` : undefined);
+        logActivity('edit_task', finalTask.title, finalTask.assigneeName ? `ចាត់តាំងឱ្យ៖ ${finalTask.assigneeName} (ផ្ទៀងផ្ទាត់រួច)` : undefined);
         return prev.map((t) => (t.id === finalTask.id ? finalTask : t));
       }
-      logActivity('create_task', finalTask.title, finalTask.assigneeName ? `ចាត់តាំងឱ្យ៖ ${finalTask.assigneeName}` : undefined);
+      logActivity('create_task', finalTask.title, finalTask.assigneeName ? `ចាត់តាំងឱ្យ៖ ${finalTask.assigneeName} (ផ្ទៀងផ្ទាត់រួច)` : undefined);
       return [finalTask, ...prev];
     });
+
+    // Persist to Central Server API immediately (Cross-Device)
+    serverApi.saveTask(finalTask, currentUser).catch(() => {});
 
     // Persist to Supabase
     saveTaskToSupabase(finalTask).catch((err) =>
@@ -1276,9 +1738,46 @@ export default function App() {
 
     logActivity('delete_task', taskToDelete?.title || taskId, 'បានលុបកិច្ចការចេញពីបញ្ជី');
 
+    // Delete in Central Server API
+    serverApi.deleteTask(taskId, currentUser).catch(() => {});
+
     // Delete in Supabase
     deleteTaskFromSupabase(taskId).catch((err) =>
       console.warn('Failed to delete task in Supabase:', err)
+    );
+  };
+
+  // Archive or Unarchive Task
+  const handleToggleArchive = (task: Task) => {
+    soundFx.playClick();
+    const willBeArchived = !task.archived;
+    const updatedTask: Task = {
+      ...task,
+      archived: willBeArchived,
+      archivedAt: willBeArchived ? new Date().toISOString() : undefined,
+    };
+
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? updatedTask : t)));
+
+    // Dismiss reminder alert if archiving
+    if (willBeArchived) {
+      setActiveAlerts((prev) => prev.filter((a) => a.id !== task.id));
+    }
+
+    logActivity(
+      willBeArchived ? 'archive_task' : 'unarchive_task',
+      task.title,
+      willBeArchived
+        ? 'បានផ្លាស់ទីកិច្ចការទៅកាន់ប័ណ្ណសារ (Archived)'
+        : 'បានស្តារកិច្ចការចេញពីប័ណ្ណសារ (Restored)'
+    );
+
+    // Save in Central Server API
+    serverApi.saveTask(updatedTask, currentUser).catch(() => {});
+
+    // Save in Supabase
+    saveTaskToSupabase(updatedTask).catch((err) =>
+      console.warn('Failed to sync archive status to Supabase:', err)
     );
   };
 
@@ -1494,7 +1993,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-slate-100 font-sans overflow-hidden antialiased text-slate-900">
+    <div className={`flex h-screen w-full font-sans overflow-hidden antialiased transition-colors duration-200 ${isDarkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
       {/* High Density Dark Indigo Sidebar */}
       <Sidebar
         currentView={filters.period}
@@ -1507,6 +2006,8 @@ export default function App() {
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
         onOpenSupabaseModal={currentUser.role === 'admin' ? () => setIsSupabaseModalOpen(true) : undefined}
         supabaseSyncStatus={supabaseSyncStatus}
         currentUser={currentUser}
@@ -1519,12 +2020,16 @@ export default function App() {
         canSyncCloud={currentUser.role === 'admin'}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
+        onSwitchAccount={handleSwitchAccount}
         onOpenStorageOptimizer={currentUser.role === 'admin' ? () => setIsStorageOptimizerOpen(true) : undefined}
         onOpenPortalLinks={currentUser.role === 'admin' ? () => setIsPortalLinksModalOpen(true) : undefined}
+        itExpensesCount={itExpenses.length}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={handleToggleDarkMode}
       />
 
       {/* Main App Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-100">
+      <div className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden transition-colors duration-200 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-gradient-to-br from-slate-50 via-slate-100/70 to-indigo-50/30 text-slate-900'}`}>
         {/* Super Admin Maintenance Mode Alert Banner */}
         {currentUser.role === 'admin' && systemConfig.isMaintenance && (
           <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white px-4 py-2 shadow-md flex items-center justify-between flex-wrap gap-2 text-xs font-bold shrink-0 z-30">
@@ -1581,6 +2086,8 @@ export default function App() {
           onToggleSound={() => setSoundEnabled(!soundEnabled)}
           onOpenNewTask={handleOpenNewTask}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(true)}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebar={handleToggleSidebar}
           tasks={visibleTasks}
           onOpenSupabaseModal={currentUser.role === 'admin' ? () => setIsSupabaseModalOpen(true) : undefined}
           supabaseSyncStatus={supabaseSyncStatus}
@@ -1594,40 +2101,56 @@ export default function App() {
           canManageUsers={currentUser.role === 'admin'}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
+          onSwitchAccount={handleSwitchAccount}
           systemConfig={systemConfig}
           onToggleMaintenance={currentUser.role === 'admin' ? handleToggleMaintenance : undefined}
           onOpenReleaseVersion={currentUser.role === 'admin' ? () => setIsReleaseVersionModalOpen(true) : undefined}
           onOpenStorageOptimizer={currentUser.role === 'admin' ? () => setIsStorageOptimizerOpen(true) : undefined}
           onOpenPortalLinks={currentUser.role === 'admin' ? () => setIsPortalLinksModalOpen(true) : undefined}
+          isDarkMode={isDarkMode}
+          onToggleDarkMode={handleToggleDarkMode}
         />
 
         {/* Scrollable Dashboard Workspace */}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 lg:pb-6 space-y-4 sm:space-y-5">
-          {/* Personalized Workspace Banner for Regular Members/Viewers */}
-          {isRegularUser && (
-            <PersonalUserBanner
+          {filters.period === 'it_expenses' ? (
+            <ITExpenseTracker
+              expenses={itExpenses}
               currentUser={currentUser}
-              tasks={visibleTasks}
-              streak={streak}
-              onFilterMyTasks={() => setFilters((f) => ({ ...f, assigneeFilter: currentUser.id }))}
-              onFilterAllTasks={() => setFilters((f) => ({ ...f, assigneeFilter: currentUser.id }))}
-              isMyTasksActive={true}
-              onStartFocusTimer={handleStartFocusTimer}
+              users={users}
+              onSaveExpense={handleSaveITExpense}
+              onDeleteExpense={handleDeleteITExpense}
+              onImportExpenses={handleImportITExpenses}
             />
-          )}
+          ) : (
+            <>
+              {/* Personalized Workspace Banner for Regular Members/Viewers */}
+              {isRegularUser && (
+                <PersonalUserBanner
+                  currentUser={currentUser}
+                  tasks={visibleTasks}
+                  streak={streak}
+                  onFilterMyTasks={() => setFilters((f) => ({ ...f, assigneeFilter: currentUser.id }))}
+                  onFilterAllTasks={() => setFilters((f) => ({ ...f, assigneeFilter: currentUser.id }))}
+                  isMyTasksActive={true}
+                  onStartFocusTimer={handleStartFocusTimer}
+                />
+              )}
 
-          {/* Top 4-Metric Grid */}
-          <DailyProgressCard
-            tasks={visibleTasks}
-            streak={streak}
-            onViewAnalytics={() => setFilters((f) => ({ ...f, period: 'analytics' }))}
-            onOpenTodaySummary={() => setIsTodaySummaryOpen(true)}
-            onOpenPhoneNotificationModal={() => setIsPhoneNotificationModalOpen(true)}
-          />
+              {/* Top 4-Metric Grid with Quick-Filter capability */}
+              <DailyProgressCard
+                tasks={visibleTasks}
+                streak={streak}
+                onFilterPeriod={(period) => setFilters((f) => ({ ...f, period }))}
+                activePeriod={filters.period}
+                onViewAnalytics={() => setFilters((f) => ({ ...f, period: 'analytics' }))}
+                onOpenTodaySummary={() => setIsTodaySummaryOpen(true)}
+                onOpenPhoneNotificationModal={() => setIsPhoneNotificationModalOpen(true)}
+              />
 
-          {/* Conditional Layouts based on Active View */}
+              {/* Conditional Layouts based on Active View */}
           {filters.period === 'analytics' ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-xs">
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-6 shadow-xs transition-colors">
               <ProgressAnalyticsView
                 tasks={visibleTasks}
                 streak={streak}
@@ -1636,7 +2159,7 @@ export default function App() {
               />
             </div>
           ) : filters.period === 'calendar' ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-xs">
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-6 shadow-xs transition-colors">
               <CalendarView
                 tasks={visibleTasks}
                 onSelectDate={(dateStr) => console.log('Selected date:', dateStr)}
@@ -1666,16 +2189,19 @@ export default function App() {
                   <QuickAddBar onAddTask={handleSaveTask} currentUser={currentUser} />
                 )}
 
-                {/* High Density Task Table / List */}
+                {/* High Density Task Table / List with real-time search */}
                 <TaskList
                   tasks={visibleTasks}
                   filters={filters}
+                  searchQuery={filters.searchQuery}
+                  onSearchChange={(q) => setFilters((prev) => ({ ...prev, searchQuery: q }))}
                   onToggleComplete={handleToggleComplete}
                   onToggleSubtask={handleToggleSubtask}
                   onEdit={handleOpenEditTask}
                   onDelete={handleDeleteTask}
                   onStartFocusTimer={handleStartFocusTimer}
                   onOpenNewTask={handleOpenNewTask}
+                  onToggleArchive={handleToggleArchive}
                   canEditTask={canEditTask}
                   canDeleteTask={canDeleteTask}
                   canToggleComplete={canToggleComplete}
@@ -1683,8 +2209,18 @@ export default function App() {
                 />
               </div>
 
-              {/* Right 4 Cols: Progress Ring & Reminders List */}
-              <div className="col-span-12 xl:col-span-4">
+              {/* Right 4 Cols: Priority Breakdown Donut & Reminders List */}
+              <div className="col-span-12 xl:col-span-4 space-y-5">
+                <PriorityBreakdownCard
+                  tasks={visibleTasks}
+                  onFilterPriority={(p) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      priority: prev.priority === p ? 'all' : p,
+                    }))
+                  }
+                />
+
                 <RightSidebarWidgets
                   tasks={visibleTasks}
                   streak={streak}
@@ -1695,17 +2231,10 @@ export default function App() {
               </div>
             </div>
           )}
+            </>
+          )}
         </main>
       </div>
-
-      {/* Floating Active Reminder Alerts */}
-      <ReminderAlertBanner
-        alerts={activeAlerts}
-        onComplete={handleToggleComplete}
-        onSnooze={handleSnoozeReminder}
-        onDismiss={handleDismissReminder}
-        onStartFocusTimer={handleStartFocusTimer}
-      />
 
       {/* Task Create / Edit Modal */}
       <TaskModal
